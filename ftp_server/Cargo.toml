@@ -1,0 +1,6 @@
+[package]
+name = "ftp_server"
+version = "0.1.0"
+authors = ["Pachev Joseph <pachevjoseph@gmail.com>"]
+
+[dependencies]
