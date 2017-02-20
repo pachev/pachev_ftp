@@ -147,7 +147,7 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
             Some(ref usr) => usr.to_string(),
             None => {
                 print!("User ({}) ", os_user);
-                stdout.flush().unwrap();
+                stdout.flush().expect("Something went wrong flushing");
                 let mut line = String::new();
                 match stdin.read_line(&mut line) {
                     Err(_) => return,
@@ -208,13 +208,12 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 fn cmd_loop (mut client: &mut BufReader<TcpStream>) {
     let mut stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
-    let mut buf = String::new();
 
     'looper: loop {
         print!("ftp>");
         stdout.flush().unwrap();
 
-        buf.clear();
+        let mut buf = String::new();
         stdin.read_line(&mut buf).unwrap();
 
         let line = buf.trim();
@@ -226,9 +225,17 @@ fn cmd_loop (mut client: &mut BufReader<TcpStream>) {
 
         match cmd {
             "ls" | "list" => Client::list(&mut client, &args),
-            "mkdir"=> Client::make_dir(&mut client, &args),
+            "mkdir" | "mkd" => Client::make_dir(&mut client, &args),
+            "cd" | "cwd" => Client::change_dir(&mut client, &args),
+            "dele" | "del" => Client::dele(&mut client, &args),
+            "cdup" | "cdu" => Client::change_dir_up(&mut client),
+            "pwd" => Client::print_working_dir(&mut client),
+            "put" | "stor" => Client::put(&mut client, args),
+            "get"| "retr" => Client::get(&mut client, args),
+            "rm" | "rmd" => Client::remove_dir(&mut client, &args),
             "quit" | "exit" => { 
                 println!("Goodbye");
+                Client::quit_server(&mut client);
                 break 'looper;
             },
             "help"=> println!("{}", COMMANDS_HELP),
