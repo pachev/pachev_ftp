@@ -2,7 +2,9 @@ extern crate argparse; //argument parsing such as -h -d etc..
 extern crate rpassword; //hidden passwords
 
 use std::io::prelude::*; //the standard io functions that come with rust
-use std::net::{TcpListener, TcpStream}; //TcP stream and listeners
+use std::io::BufReader; //the standard io functions that come with rust
+use std::net::TcpStream;
+use std::net::SocketAddrV4;
 use std::thread::spawn; //For threads
 
 use std::string::String;
@@ -16,8 +18,11 @@ use std::collections::HashMap;
 
 use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue};
 use rpassword::{read_password};
+use rpassword::prompt_password_stdout;
 
-
+//helper file for client functions
+mod client;
+use client::{FtpMode, Client};
 //This section here defines the arguements that the ftp_client will
 //initally take when being called
 #[derive(Debug, Clone)]
@@ -63,6 +68,7 @@ impl Arguements {
 
 fn main() {
     
+    //Using argparse to make cmd line parsing manageable
     let mut arguements = Arguements::new();
     
     {
@@ -117,14 +123,131 @@ fn main() {
 
         ap.parse_args_or_exit();
     }
+
+    //Uses either the parsed info or defaults to determiner server
+    let mut server = format!("{}:{}", arguements.hostname, arguements.ftp_port);
+    let mut myclient = TcpStream::connect(server.as_str()).expect("Error Connecting to server");
+    let mut stream = BufReader::new(myclient);
+    let mut line = String::new();
+    println!("Success Connecting to server");
+    stream.read_line(&mut line).expect("Something wwent wrong reading from server");
+
+    login(&mut stream, &arguements);
+    cmd_loop(&mut stream);
 }
+
+fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut logged_in: bool = false;
+    let os_user = std::env::var("USER").unwrap_or(String::new());
+
+    while !logged_in {
+        let user = match arguements.username {
+            Some(ref usr) => usr.to_string(),
+            None => {
+                print!("User ({}) ", os_user);
+                stdout.flush().unwrap();
+                let mut line = String::new();
+                match stdin.read_line(&mut line) {
+                    Err(_) => return,
+                    Ok(_) => {
+                        match line.trim().is_empty() {
+                            true => os_user.to_string(),
+                            false=> line.trim().to_string()
+                        }
+                    }
+                }
+            }
+        };
+
+        let password = match arguements.password {
+            Some(ref pass) => pass.to_string(),
+            None => {
+                match prompt_password_stdout("Password: ") {
+                    Ok(pwd) => pwd.to_string(),
+                    Err(_) => return,
+                }
+            }
+        };
+        let mut line = String::new();
+        let mut cmd = format!("USER {}\n", user);
+        let mut response = String::new();
+
+        Client::write_command(&mut client, &cmd);
+        response = Client::read_message(&mut client);
+
+
+        response.clear();
+        cmd = format!("PASS {}\n", password);
+
+        Client::write_command(&mut client, &cmd);
+        response = Client::read_message(&mut client);
+        
+        match Client::get_code_from_respone(&response) {
+            Ok(230) => {
+                println!("Success Logging In");
+                logged_in = true;
+            },
+            Ok(n) => {
+                println!("Uncessfull, try again");
+                continue;
+            },
+            Err(e) => break
+        }
+
+
+        
+
+    }
+
+}
+
+
+
+fn cmd_loop (mut client: &mut BufReader<TcpStream>) {
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut buf = String::new();
+
+    'looper: loop {
+        print!("ftp>");
+        stdout.flush().unwrap();
+
+        buf.clear();
+        stdin.read_line(&mut buf).unwrap();
+
+        let line = buf.trim();
+
+        let (cmd,args) = match line.find(' ') {
+            Some(pos) =>(&line[0..pos], &line[pos+1..]),
+            None => (line, "".as_ref())
+        };
+
+        match cmd {
+            "ls" | "list" => Client::list(&mut client, &args),
+            "mkdir"=> Client::make_dir(&mut client, &args),
+            "quit" | "exit" => { 
+                println!("Goodbye");
+                break 'looper;
+            },
+            "help"=> println!("{}", COMMANDS_HELP),
+            _ => {
+                println!("Invalid Command");
+            }
+        }
+
+    }
+
+
+}
+
 
 
 const COMMANDS_HELP: &'static str =
 "
 Pachev Joseph - 5699044
 Commands: 
-        login - User login command
         user - Sends the username
         pass - Send the password
         cwd - Changes working directory
