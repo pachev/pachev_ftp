@@ -184,7 +184,7 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
             }
         };
         let mut line = String::new();
-        let mut cmd = format!("USER {}\n", user);
+        let mut cmd = format!("USER {}\r\n", user);
         let mut response = String::new();
 
         client::write_command(&mut client, &cmd);
@@ -192,7 +192,7 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 
 
         response.clear();
-        cmd = format!("PASS {}\n", password);
+        cmd = format!("PASS {}\r\n", password);
 
         client::write_command(&mut client, &cmd);
         response = client::read_message(&mut client);

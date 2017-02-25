@@ -153,6 +153,7 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                  data_port: &i32,
                  mut map: &HashMap<String, user::User>) {
 
+    let mut data_type = String::new();
     let mut logged_in = false;
     let mut limit = 3; //TODO: add this in the configuration file
     let mut msg = String::new();
@@ -178,20 +179,28 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
         };
 
         //TODO: figure out how to match with lowercase
+        //TODO: Fix logic with logged_in
         match cmd {
             "USER" | "user" => {
-                match server::handle_user(&mut client, &args, &map) {
-                    true => {
-                        logged_in = true;
-                        user = map.get(args).unwrap().clone();
-                    }
-                    false => {
-                        logged_in = false;
-                        limit -= 1;
-                        if limit <= 0 {
-                            break;
+                if !logged_in {
+                    match server::handle_user(&mut client, &args, &map) {
+                        true => {
+                            logged_in = true;
+                            user = map.get(args).unwrap().clone();
+                        }
+                        false => {
+                            logged_in = false;
+                            limit -= 1;
+                            if limit <= 0 {
+                                break;
+                            }
                         }
                     }
+                } else {
+
+                    server::write_response(client,
+                                           &format!("{} Badd sequence of commands\r\n",
+                                                    server::NOT_UNDERSTOOD));
                 }
             }
             "CWD" | "cwd" | "cd" => {
@@ -206,6 +215,24 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             "MKD" | "mkd" | "mkdir" => {
                 if logged_in {
                     server::mkd(&mut client, &args, &mut user);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "PASV" | "pasv" => {
+                if logged_in {
+                    server::mkd(&mut client, &args, &mut user);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "TYPE" | "type" => {
+                if logged_in {
+                    data_type = server::handle_type(&mut client, &args);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",

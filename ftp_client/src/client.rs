@@ -66,7 +66,7 @@ pub fn change_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
 }
 
 pub fn change_dir_up(mut stream: &mut BufReader<TcpStream>) {
-    let mut cmd = "CDUP\n".to_string();
+    let mut cmd = "CDUP\r\n".to_string();
     let mut response = String::new();
 
     write_command(&mut stream, &cmd);
@@ -76,7 +76,7 @@ pub fn change_dir_up(mut stream: &mut BufReader<TcpStream>) {
 //Remove a directory
 
 pub fn remove_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = format!("RMD {}\n", args);
+    let mut cmd = format!("RMD {}\r\n", args);
     let mut response = String::new();
 
     write_command(&mut stream, &cmd);
@@ -86,7 +86,7 @@ pub fn remove_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
 //Delete  a File
 
 pub fn dele(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = format!("DELE {}\n", args);
+    let mut cmd = format!("DELE {}\r\n", args);
     let mut response = String::new();
 
     write_command(&mut stream, &cmd);
@@ -96,7 +96,7 @@ pub fn dele(mut stream: &mut BufReader<TcpStream>, args: &str) {
 //Print working dir
 
 pub fn print_working_dir(mut stream: &mut BufReader<TcpStream>) {
-    let mut cmd = "PWD\n".to_string();
+    let mut cmd = "PWD\r\n".to_string();
     let mut response = String::new();
 
     write_command(&mut stream, &cmd);
@@ -105,7 +105,7 @@ pub fn print_working_dir(mut stream: &mut BufReader<TcpStream>) {
 
 //QUIT
 pub fn quit_server(mut stream: &mut BufReader<TcpStream>) {
-    let mut cmd = "QUIT\n".to_string();
+    let mut cmd = "QUIT\r\n".to_string();
     let mut response = String::new();
     write_command(&mut stream, &cmd);
     response = read_message(&mut stream);
@@ -113,7 +113,7 @@ pub fn quit_server(mut stream: &mut BufReader<TcpStream>) {
 
 //Put a file
 pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = "Type I\n".to_string();
+    let mut cmd = "Type I\r\n".to_string();
     let mut response = String::new();
 
     let mut lpath = String::new();
@@ -136,7 +136,7 @@ pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
 
     cmd.clear();
-    cmd = "PASV\n".to_string();
+    cmd = "PASV\r\n".to_string();
     response.clear();
     write_command(&mut stream, &cmd);
 
@@ -153,7 +153,7 @@ pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
     //Calling for the listing of directories
     cmd.clear();
-    cmd = format!("STOR {}\n", rpath);
+    cmd = format!("STOR {}\r\n", rpath);
     write_command(&mut stream, &cmd);
     //TODO Spawn a therad here
     let mut stream2 = (TcpStream::connect(addr)).expect("could not read");
@@ -171,7 +171,7 @@ pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
 //Get a file
 pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = "Type I\n".to_string();
+    let mut cmd = "Type I\r\n".to_string();
     let mut response = String::new();
 
     let mut lpath = String::new();
@@ -205,7 +205,7 @@ pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
 
     cmd.clear();
-    cmd = "PASV\n".to_string();
+    cmd = "PASV\r\n".to_string();
     response.clear();
     write_command(&mut stream, &cmd);
 
@@ -222,7 +222,7 @@ pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
     //Calling for the listing of directories
     cmd.clear();
-    cmd = format!("RETR {}\n", rpath);
+    cmd = format!("RETR {}\r\n", rpath);
     write_command(&mut stream, &cmd);
     //TODO Spawn a therad here
     let mut stream2 = (TcpStream::connect(addr)).expect("could not connect to data streamm");
@@ -240,7 +240,7 @@ pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
 //List Command
 pub fn list(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = "Type A\n".to_string();
+    let mut cmd = "Type A\r\n".to_string();
     let mut response = String::new();
 
     write_command(&mut stream, &cmd);
@@ -248,7 +248,7 @@ pub fn list(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
     //Passive connection mode
     cmd.clear();
-    cmd = "PASV\n".to_string();
+    cmd = "PASV\r\n".to_string();
     response.clear();
     write_command(&mut stream, &cmd);
     response = read_message(&mut stream);
@@ -264,7 +264,7 @@ pub fn list(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
     //Calling for the listing of directories
     cmd.clear();
-    cmd = format!("LIST {}\n", args);
+    cmd = format!("LIST {}\r\n", args);
     write_command(&mut stream, &cmd);
     response.clear();
 
