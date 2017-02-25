@@ -6,6 +6,7 @@ pub struct User {
     pub pass: String,
     pub role: String,
     pub path: String,
+    pub cur_dir: String,
 }
 
 impl User {
@@ -15,6 +16,7 @@ impl User {
             pass: "".to_string(),
             role: "user".to_string(),
             path: "".to_string(),
+            cur_dir: "".to_string(),
         }
     }
 }
