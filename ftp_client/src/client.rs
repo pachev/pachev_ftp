@@ -269,7 +269,8 @@ pub fn list(mut stream: &mut BufReader<TcpStream>, args: &str) {
     response.clear();
 
     //TODO Spawn a therad here
-    let mut stream2 = (TcpStream::connect(addr)).expect("could not read");
+    println!("remote address: {}:{}", ip, port);
+    let mut stream2 = (TcpStream::connect(addr)).expect("could not connect to server");
 
     response.clear();
     response = read_message(&mut stream);

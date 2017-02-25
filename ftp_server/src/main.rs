@@ -30,6 +30,7 @@ mod server;
 mod user;
 
 use user::User;
+use server::FtpMode;
 
 
 #[derive(Debug, Clone)]
@@ -154,6 +155,7 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                  mut map: &HashMap<String, user::User>) {
 
     let mut data_type = String::new();
+    let mut ftp_mode = FtpMode::Passive;
     let mut logged_in = false;
     let mut limit = 3; //TODO: add this in the configuration file
     let mut msg = String::new();
@@ -177,6 +179,7 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             Some(pos) => (&line[0..pos], &line[pos + 1..]),
             None => (line, "".as_ref()),
         };
+        println!("CLIENT: {} {}", cmd, args);
 
         //TODO: figure out how to match with lowercase
         //TODO: Fix logic with logged_in
@@ -197,7 +200,6 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                         }
                     }
                 } else {
-
                     server::write_response(client,
                                            &format!("{} Badd sequence of commands\r\n",
                                                     server::NOT_UNDERSTOOD));
@@ -206,6 +208,15 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             "CWD" | "cwd" | "cd" => {
                 if logged_in {
                     server::cwd(&mut client, &args, &mut user);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "LIST" | "list" => {
+                if logged_in {
+                    server::list(&mut client, &user, ftp_mode, &args, &data_port);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
@@ -223,14 +234,14 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             }
             "PASV" | "pasv" => {
                 if logged_in {
-                    server::mkd(&mut client, &args, &mut user);
+                    server::handle_mode(&mut client, ftp_mode, &data_port);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
-            "TYPE" | "type" => {
+            "TYPE" | "type" | "Type" => {
                 if logged_in {
                     data_type = server::handle_type(&mut client, &args);
                 } else {
@@ -242,6 +253,11 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             "QUIT" | "EXIT" | "exit" | "quit" => {
                 server::write_response(&mut client, &format!("{} GOODBYE\r\n", server::GOODBYE));
                 break;
+            }
+            "SYST" | "syst" => {
+                //TODO: Make system  ox agnostic
+                server::write_response(&mut client,
+                                       &format!("{} UNIX Type: L8r\n", server::SYSTEM_RECEIVED));
             }
             "HELP" => server::write_response(&mut client, &COMMANDS_HELP),
             _ => server::write_response(&mut client, &format!("Invalid Command\r\n")),

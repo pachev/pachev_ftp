@@ -1,10 +1,12 @@
 use std::io::prelude::*; //the standard io functions that come with rust
+use std::os::unix::fs::PermissionsExt;
 use std::collections::HashMap;
-use std::io::BufReader;
+use std::io::{BufWriter, BufReader};
 use std::string::String;
-use std::net::{TcpStream, SocketAddrV4};
+use std::net::{TcpStream, TcpListener, Shutdown, SocketAddrV4};
 use std::path::Path;
 use std::fs;
+use std::fs::File;
 
 use user::User;
 
@@ -151,10 +153,146 @@ pub fn mkd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
 }
 
 //TODO: Role check in main function instead of here
+//TODO: Consider turning type into an ENUM
 pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
     match args {
-        "i" | "I" => return "BINARY".to_string(),
-        "a" | "A" => return "ASCII".to_string(),
+        "i" | "I" => {
+            write_response(client, &format!("{} Type set to I\r\n", OPERATION_SUCCESS));
+            return "BINARY".to_string();
+        }
+        "a" | "A" => {
+
+            write_response(client, &format!("{} Type set to A\r\n", OPERATION_SUCCESS));
+            return "ASCII".to_string();
+        }
         _ => return "".to_string(),
+    }
+}
+
+pub fn handle_mode(client: &mut BufReader<TcpStream>, ftp_mode: FtpMode, data_port: &i32) {
+    match ftp_mode {
+        FtpMode::Passive => {
+            let ip = format!("{}", client.get_mut().local_addr().unwrap().ip()).replace(".", ",");
+            let (port1, port2) = split_port(data_port.clone() as u16);
+            write_response(client,
+                           &format!("{} Entering Passive Mode ({},{},{}).\r\n",
+                                    PASSIVE_MODE,
+                                    ip,
+                                    port1,
+                                    port2));
+        }
+        _ => {
+            write_response(client,
+                           &format!("{} Bad sequence of commands.\r\n", NOT_UNDERSTOOD));
+        }
+    }
+}
+
+
+//Handling list commmand
+pub fn list(client: &mut BufReader<TcpStream>,
+            user: &User,
+            mode: FtpMode,
+            args: &str,
+            data_port: &i32) {
+
+    let mut dir_ls = String::new();
+
+
+    match mode {
+        FtpMode::Passive => {
+            let ip = client.get_mut().local_addr().unwrap().ip();
+            let server = format!("{}:{}", ip, data_port);
+            println!("server: {}", server);
+            let listener = TcpListener::bind(server.as_str())
+                .expect("Could not bind to data socket");
+
+            for stream in listener.incoming() {
+                write_response(client,
+                               &format!("{} Openning ASCII mode data for file list\r\n",
+                                        OPENNING_DATA_CONNECTION));
+
+                let mut data_stream = stream.expect("Could not connect to incoming stream");
+                let mut file_path = ftp_ls(&user, args, data_port);
+                let mut file = File::open(file_path).expect("Could not open file");
+                write_to_stream(&mut file, &mut data_stream);
+
+                write_response(client,
+                               &format!("{} Transfer Complete\r\n", CLOSING_DATA_CONNECTION));
+                data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
+            }
+
+        }
+        _ => println!("Mode not implemented"),
+    }
+
+
+}
+
+fn split_port(port: u16) -> (u16, u16) {
+    let b1 = (port / 256);
+    let b2 = (port % 256);
+    (b1, b2)
+}
+
+fn ftp_ls(user: &User, args: &str, port: &i32) -> String {
+    //HANDLE not a directory
+    let mut cur_dir = String::new();
+
+    if args.is_empty() {
+        cur_dir = format!("{}", user.cur_dir);
+    } else {
+        cur_dir = format!("{}/{}", user.cur_dir, args);
+    }
+
+    let path = Path::new(&cur_dir);
+
+    let temp_file = format!("{}/.temp_ls{}", user.path, port);
+    let mut file = File::create(&temp_file).expect("Could not create ls file");
+    println!("cur_dir {}", path.display());
+    let mut paths = fs::read_dir(path).expect("Could not read directory for listing {}");
+
+    for path in paths {
+        let path = path.unwrap().path();
+        let shortpath = path.to_str().unwrap();
+        let pos = shortpath.find("ftproot").unwrap(); //Possible improvement here(error checking)
+
+        println!("pos: {} shortpath {}", pos, &shortpath[pos..]);
+
+        let meta = path.metadata().unwrap();
+        let d_path = format!("{}", &shortpath[pos + 7..]);
+        let line = format!("{}\t{}B\t{}", meta.permissions().mode(), meta.len(), d_path);
+
+        file.write_fmt(format_args!("{}\n", line));
+    }
+
+
+    return temp_file;
+
+}
+
+fn write_to_stream(file: &mut File, stream: &mut TcpStream) {
+    let mut buf = vec![0; 1024];
+    let mut done = false;
+    while !done {
+        let n = file.read(&mut buf).expect("Could not read local file");
+        if n > 0 {
+            stream.write_all(&buf[..n]).expect("Could not write to remote locatio");
+        } else {
+            done = true;
+        }
+    }
+}
+
+fn write_to_file(file: &mut File, stream: &mut TcpStream) {
+    let mut buf = vec![0; 4096];
+    let mut done = false;
+    while !done {
+        let n = stream.read(&mut buf).expect("Could not read remote file");
+        if n > 0 {
+            file.write_all(&buf[..n]).expect("Could not write to local locatio");
+        } else {
+            done = true;
+        }
     }
 }
