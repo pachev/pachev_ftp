@@ -108,12 +108,62 @@ pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
     println!("user path: {}", user.path);
     println!("cur path: {}", user.cur_dir);
 
-    let cur_dir = format!("{}/{}", user.path, args);
+    let cur_dir = format!("{}", user.cur_dir).to_string();
+    let arg_dir = format!("{}/{}", user.cur_dir, args).to_string();
     let user_dir = format!("{}", user.path);
 
-    let cur_path = Path::new(&cur_dir);
+    let mut temp_path = Path::new(&cur_dir);
     let user_root = Path::new(&user_dir);
-    println!("is cur>root{}", cur_path < user_root);
+
+    if args == ".." {
+        temp_path = temp_path.parent().unwrap();
+    } else if args == "." {
+        //seriously? no sleep is affecting me
+        temp_path = Path::new(&cur_dir);
+    } else {
+        temp_path = Path::new(&arg_dir);
+    }
+
+    let new_path = temp_path;
+    println!("temp path: {}", temp_path.display());
+
+    match new_path < user_root {
+        true => {
+            println!("new path is less then root");
+            write_response(client,
+                           &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
+        }
+        false => {
+            if new_path.exists() && new_path.is_dir() {
+                println!("New path exists");
+                user.cur_dir = new_path.display().to_string();
+                write_response(client,
+                               &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
+            } else {
+                println!("New path doesn't  exists");
+                write_response(client,
+                               &format!("{} {} No Such File or Directory \r\n", NO_ACCESS, args));
+            }
+        }
+    }
+
+    println!("new cur path: {}", user.cur_dir);
+
+}
+
+//TODO: fixing here after implementing ls command
+pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
+    println!("user path: {}", user.path);
+    println!("cur path: {}", user.cur_dir);
+
+    //REFRACTOR: PutUser directory and path in one line
+    let user_dir = format!("{}", user.path);
+    let user_root = Path::new(&user_dir);
+
+    let cur_dir = format!("{}", user.cur_dir);
+    let cur_path = Path::new(&cur_dir);
+
+    let parent = cur_path.parent().expect("No parent path exists");
 
     match cur_path < user_root {
         true => {
@@ -121,16 +171,13 @@ pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
                            &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
         }
         false => {
-            if cur_path.exists() {
-                user.cur_dir = cur_dir.to_string();
-                write_response(client,
-                               &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
-            } else {
-                write_response(client,
-                               &format!("{} {} No Such File or Directory \r\n", NO_ACCESS, args));
-            }
+            user.cur_dir = cur_dir.to_string();
+            write_response(client,
+                           &format!("{} CDUP Command Success \r\n", CWD_CONFIRMED));
         }
     }
+
+    println!("NEW cur path: {}", user.cur_dir);
 
 
 }
@@ -153,7 +200,7 @@ pub fn mkd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
 }
 
 //TODO: Role check in main function instead of here
-//TODO: Consider turning type into an ENUM
+//REFRACTOR: Consider turning type into an ENUM
 pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
     match args {
         "i" | "I" => {
@@ -169,7 +216,10 @@ pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
     }
 }
 
-pub fn handle_mode(client: &mut BufReader<TcpStream>, ftp_mode: FtpMode, data_port: &i32) {
+pub fn handle_mode(client: &mut BufReader<TcpStream>,
+                   ftp_mode: FtpMode,
+                   data_port: &i32,
+                   listener: &mut TcpListener) {
     match ftp_mode {
         FtpMode::Passive => {
             let ip = format!("{}", client.get_mut().local_addr().unwrap().ip()).replace(".", ",");
@@ -194,33 +244,24 @@ pub fn list(client: &mut BufReader<TcpStream>,
             user: &User,
             mode: FtpMode,
             args: &str,
-            data_port: &i32) {
+            data_port: &i32,
+            listener: &TcpListener) {
 
-    let mut dir_ls = String::new();
-
+    //getting a head start here in order to prvent slow connection
 
     match mode {
         FtpMode::Passive => {
-            let ip = client.get_mut().local_addr().unwrap().ip();
-            let server = format!("{}:{}", ip, data_port);
-            println!("server: {}", server);
-            let listener = TcpListener::bind(server.as_str())
-                .expect("Could not bind to data socket");
 
-            for stream in listener.incoming() {
-                write_response(client,
-                               &format!("{} Openning ASCII mode data for file list\r\n",
-                                        OPENNING_DATA_CONNECTION));
+            let (stream, addr) = listener.accept().expect("Could not accept connection");
+            write_response(client,
+                           &format!("{} Openning ASCII mode data for file list\r\n",
+                                    OPENNING_DATA_CONNECTION));
 
-                let mut data_stream = stream.expect("Could not connect to incoming stream");
-                let mut file_path = ftp_ls(&user, args, data_port);
-                let mut file = File::open(file_path).expect("Could not open file");
-                write_to_stream(&mut file, &mut data_stream);
-
-                write_response(client,
-                               &format!("{} Transfer Complete\r\n", CLOSING_DATA_CONNECTION));
-                data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
-            }
+            let mut data_stream = stream;
+            ftp_ls(&user, &mut data_stream, args, data_port);
+            write_response(client,
+                           &format!("{} Transfer Complete\r\n", CLOSING_DATA_CONNECTION));
+            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
         _ => println!("Mode not implemented"),
@@ -229,13 +270,15 @@ pub fn list(client: &mut BufReader<TcpStream>,
 
 }
 
+//Utility operation to convert port in to two number per RFC
 fn split_port(port: u16) -> (u16, u16) {
-    let b1 = (port / 256);
-    let b2 = (port % 256);
+    let b1 = port / 256;
+    let b2 = port % 256;
     (b1, b2)
 }
 
-fn ftp_ls(user: &User, args: &str, port: &i32) -> String {
+//Refractor: Consider returning a result from here for global error handling
+fn ftp_ls(user: &User, stream: &mut TcpStream, args: &str, port: &i32) {
     //HANDLE not a directory
     let mut cur_dir = String::new();
 
@@ -247,8 +290,6 @@ fn ftp_ls(user: &User, args: &str, port: &i32) -> String {
 
     let path = Path::new(&cur_dir);
 
-    let temp_file = format!("{}/.temp_ls{}", user.path, port);
-    let mut file = File::create(&temp_file).expect("Could not create ls file");
     println!("cur_dir {}", path.display());
     let mut paths = fs::read_dir(path).expect("Could not read directory for listing {}");
 
@@ -257,17 +298,14 @@ fn ftp_ls(user: &User, args: &str, port: &i32) -> String {
         let shortpath = path.to_str().unwrap();
         let pos = shortpath.find("ftproot").unwrap(); //Possible improvement here(error checking)
 
-        println!("pos: {} shortpath {}", pos, &shortpath[pos..]);
-
         let meta = path.metadata().unwrap();
-        let d_path = format!("{}", &shortpath[pos + 7..]);
-        let line = format!("{}\t{}B\t{}", meta.permissions().mode(), meta.len(), d_path);
+        let line = format!("{}\t{}B\t{}",
+                           meta.permissions().mode(),
+                           meta.len(),
+                           &shortpath[pos + 7..]);
 
-        file.write_fmt(format_args!("{}\n", line));
+        stream.write_fmt(format_args!("{}\n", line));
     }
-
-
-    return temp_file;
 
 }
 

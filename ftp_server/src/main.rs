@@ -2,6 +2,9 @@ extern crate argparse; //argument parsing such as -h -d etc..
 #[macro_use]
 extern crate log;
 
+//For ignore case
+use std::ascii::AsciiExt;
+
 use std::io::prelude::*; //the standard io functions that come with rust
 use std::io::BufReader;
 use std::thread::spawn; //For threads
@@ -154,7 +157,13 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                  data_port: &i32,
                  mut map: &HashMap<String, user::User>) {
 
+    let data_server = format!("{}:{}",
+                              client.get_mut().local_addr().unwrap().ip(),
+                              data_port);
+
     let mut data_type = String::new();
+    let mut data_listener = TcpListener::bind(data_server.as_str())
+        .expect("Could not open data serve");
     let mut ftp_mode = FtpMode::Passive;
     let mut logged_in = false;
     let mut limit = 3; //TODO: add this in the configuration file
@@ -181,10 +190,10 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
         };
         println!("CLIENT: {} {}", cmd, args);
 
-        //TODO: figure out how to match with lowercase
-        //TODO: Fix logic with logged_in
-        match cmd {
-            "USER" | "user" => {
+        //TODO: Fix logic with logged_in so I'm not repatedly checking for each pattern
+
+        match cmd.to_lowercase().as_ref() {
+            "user" => {
                 if !logged_in {
                     match server::handle_user(&mut client, &args, &map) {
                         true => {
@@ -205,7 +214,16 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                                                     server::NOT_UNDERSTOOD));
                 }
             }
-            "CWD" | "cwd" | "cd" => {
+            "cdup" => {
+                if logged_in {
+                    server::cdup(&mut client, &mut user);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "cwd" | "cd" => {
                 if logged_in {
                     server::cwd(&mut client, &args, &mut user);
                 } else {
@@ -214,16 +232,21 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
-            "LIST" | "list" => {
+            "list" => {
                 if logged_in {
-                    server::list(&mut client, &user, ftp_mode, &args, &data_port);
+                    server::list(&mut client,
+                                 &user,
+                                 ftp_mode,
+                                 &args,
+                                 &data_port,
+                                 &data_listener);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
-            "MKD" | "mkd" | "mkdir" => {
+            "mkd" | "mkdir" => {
                 if logged_in {
                     server::mkd(&mut client, &args, &mut user);
                 } else {
@@ -232,40 +255,43 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
-            "PASV" | "pasv" => {
+            "pasv" => {
                 if logged_in {
-                    server::handle_mode(&mut client, ftp_mode, &data_port);
+                    server::handle_mode(&mut client, ftp_mode, &data_port, &mut data_listener);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
-            "TYPE" | "type" | "Type" => {
+            "type" => {
                 if logged_in {
-                    data_type = server::handle_type(&mut client, &args);
+                    server::handle_type(&mut client, &args);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
-            "QUIT" | "EXIT" | "exit" | "quit" => {
+            "quit" | "exit" | "logout" => {
                 server::write_response(&mut client, &format!("{} GOODBYE\r\n", server::GOODBYE));
                 break;
             }
-            "SYST" | "syst" => {
+            "syst" => {
                 //TODO: Make system  ox agnostic
                 server::write_response(&mut client,
                                        &format!("{} UNIX Type: L8r\n", server::SYSTEM_RECEIVED));
             }
-            "HELP" => server::write_response(&mut client, &COMMANDS_HELP),
+            "help" | "?" => server::write_response(&mut client, &COMMANDS_HELP),
             _ => server::write_response(&mut client, &format!("Invalid Command\r\n")),
         }
 
     }
+    //TODO: A mutex should go here but rust handles variables iwth 'Move"
+    //The mutex will decrement the total client count
 
     client.get_mut().shutdown(Shutdown::Both).expect("couldn't close server");
+    println!("Client {} has closed connection", data_port - 27500);
 }
 
 
