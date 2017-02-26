@@ -31,9 +31,11 @@ use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue};
 // Local Modules
 mod server;
 mod user;
+mod main_commands;
 
 use user::User;
 use server::FtpMode;
+use main_commands as mc;
 
 
 #[derive(Debug, Clone)]
@@ -236,12 +238,12 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             }
             "list" => {
                 if logged_in {
-                    server::list(&mut client,
-                                 &user,
-                                 ftp_mode,
-                                 &args,
-                                 &data_port,
-                                 &data_listener);
+                    mc::list(&mut client,
+                             &user,
+                             ftp_mode,
+                             &args,
+                             &data_port,
+                             &data_listener);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
@@ -273,6 +275,24 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                     ftp_mode = FtpMode::Active(actv_socket_addr);
 
                     server::handle_mode(&mut client, ftp_mode, &data_port, &args);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "retr" => {
+                if logged_in {
+                    mc::retr(&mut client, &user, ftp_mode, &args, &data_listener);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "stor" => {
+                if logged_in {
+                    mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",

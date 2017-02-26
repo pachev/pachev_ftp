@@ -262,46 +262,11 @@ pub fn handle_mode(client: &mut BufReader<TcpStream>,
 }
 
 
-//Handling list commmand
-pub fn list(client: &mut BufReader<TcpStream>,
-            user: &User,
-            mode: FtpMode,
-            args: &str,
-            data_port: &i32,
-            listener: &TcpListener) {
 
-    //getting a head start here in order to prvent slow connection
-
-    match mode {
-        FtpMode::Passive => {
-
-            let (stream, addr) = listener.accept().expect("Could not accept connection");
-            write_response(client,
-                           &format!("{} Openning ASCII mode data for file list\r\n",
-                                    OPENNING_DATA_CONNECTION));
-
-            let mut data_stream = stream;
-            ftp_ls(&user, &mut data_stream, args, data_port);
-            write_response(client,
-                           &format!("{} Transfer Complete\r\n", CLOSING_DATA_CONNECTION));
-            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
-
-        }
-        _ => println!("Mode not implemented"),
-    }
-
-
-}
-
-//Utility operation to convert port in to two number per RFC
-fn split_port(port: u16) -> (u16, u16) {
-    let b1 = port / 256;
-    let b2 = port % 256;
-    (b1, b2)
-}
 
 //Refractor: Consider returning a result from here for global error handling
-fn ftp_ls(user: &User, stream: &mut TcpStream, args: &str, port: &i32) {
+//and write a file instead of directly to stream
+pub fn ftp_ls(user: &User, mut stream: &mut TcpStream, args: &str) {
     //HANDLE not a directory
     let mut cur_dir = String::new();
 
@@ -327,12 +292,12 @@ fn ftp_ls(user: &User, stream: &mut TcpStream, args: &str, port: &i32) {
                            meta.len(),
                            &shortpath[pos + 7..]);
 
-        stream.write_fmt(format_args!("{}\n", line));
+        stream.write(format!("{}\r\n", line).as_bytes());
     }
 
 }
 
-fn write_to_stream(file: &mut File, stream: &mut TcpStream) {
+pub fn write_to_stream(file: &mut File, stream: &mut TcpStream) {
     let mut buf = vec![0; 1024];
     let mut done = false;
     while !done {
@@ -345,7 +310,7 @@ fn write_to_stream(file: &mut File, stream: &mut TcpStream) {
     }
 }
 
-fn write_to_file(file: &mut File, stream: &mut TcpStream) {
+pub fn write_to_file(file: &mut File, stream: &mut TcpStream) {
     let mut buf = vec![0; 1024];
     let mut done = false;
     while !done {
@@ -360,4 +325,11 @@ fn write_to_file(file: &mut File, stream: &mut TcpStream) {
 
 pub fn to_ftp_port(b1: u16, b2: u16) -> u16 {
     b1 * 256 + b2
+}
+
+//Utility operation to convert port in to two number per RFC
+fn split_port(port: u16) -> (u16, u16) {
+    let b1 = port / 256;
+    let b2 = port % 256;
+    (b1, b2)
 }
