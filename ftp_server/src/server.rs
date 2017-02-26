@@ -24,6 +24,7 @@ pub const PATHNAME_AVAILABLE: u32 = 257;
 pub const PASSWORD_EXPECTED: u32 = 331;
 pub const INVALID_USER_OR_PASS: u32 = 430;
 pub const NOT_UNDERSTOOD: u32 = 500;
+pub const ILLEGAL_PORT: u32 = 500;
 pub const AUTHENTICATION_FAILED: u32 = 530;
 pub const NO_ACCESS: u32 = 550;
 
@@ -151,7 +152,7 @@ pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
 
 }
 
-//TODO: fixing here after implementing ls command
+//TODO: implement logic for user permissions here
 pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
     println!("user path: {}", user.path);
     println!("cur path: {}", user.cur_dir);
@@ -161,9 +162,8 @@ pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
     let user_root = Path::new(&user_dir);
 
     let cur_dir = format!("{}", user.cur_dir);
-    let cur_path = Path::new(&cur_dir);
+    let cur_path = Path::new(&cur_dir).parent().expect("No parent exists");
 
-    let parent = cur_path.parent().expect("No parent path exists");
 
     match cur_path < user_root {
         true => {
@@ -171,7 +171,7 @@ pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
                            &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
         }
         false => {
-            user.cur_dir = cur_dir.to_string();
+            user.cur_dir = cur_path.display().to_string();
             write_response(client,
                            &format!("{} CDUP Command Success \r\n", CWD_CONFIRMED));
         }
@@ -216,20 +216,43 @@ pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
     }
 }
 
+
+//REFRACTOR: Redo this logic to for more succinct code
 pub fn handle_mode(client: &mut BufReader<TcpStream>,
                    ftp_mode: FtpMode,
                    data_port: &i32,
-                   listener: &mut TcpListener) {
+                   args: &str) {
+
     match ftp_mode {
         FtpMode::Passive => {
             let ip = format!("{}", client.get_mut().local_addr().unwrap().ip()).replace(".", ",");
             let (port1, port2) = split_port(data_port.clone() as u16);
+
             write_response(client,
                            &format!("{} Entering Passive Mode ({},{},{}).\r\n",
                                     PASSIVE_MODE,
                                     ip,
                                     port1,
                                     port2));
+        }
+
+        FtpMode::Active(addr) => {
+            match TcpStream::connect(addr) {
+                Ok(stream) => {
+                    write_response(client,
+                                   &format!("{} Port command successful\r\n",
+                                    OPERATION_SUCCESS,
+                                    ));
+                }
+                Err(d) => {
+                    info!("{}", d);
+                    write_response(client,
+                                   &format!("{} Illegal Port Command\r\n",
+                                    ILLEGAL_PORT,
+                                    ));
+                }
+
+            }
         }
         _ => {
             write_response(client,
@@ -323,7 +346,7 @@ fn write_to_stream(file: &mut File, stream: &mut TcpStream) {
 }
 
 fn write_to_file(file: &mut File, stream: &mut TcpStream) {
-    let mut buf = vec![0; 4096];
+    let mut buf = vec![0; 1024];
     let mut done = false;
     while !done {
         let n = stream.read(&mut buf).expect("Could not read remote file");
@@ -333,4 +356,8 @@ fn write_to_file(file: &mut File, stream: &mut TcpStream) {
             done = true;
         }
     }
+}
+
+pub fn to_ftp_port(b1: u16, b2: u16) -> u16 {
+    b1 * 256 + b2
 }

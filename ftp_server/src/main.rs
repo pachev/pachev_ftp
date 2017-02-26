@@ -10,7 +10,7 @@ use std::io::BufReader;
 use std::thread::spawn; //For threads
 
 use std::string::String;
-use std::net::{TcpStream, TcpListener, Shutdown};
+use std::net::{Ipv4Addr, TcpStream, TcpListener, Shutdown, SocketAddrV4};
 
 use std::path::Path;
 use std::fs;
@@ -161,6 +161,8 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                               client.get_mut().local_addr().unwrap().ip(),
                               data_port);
 
+    let mut actv_socket_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27598);
+
     let mut data_type = String::new();
     let mut data_listener = TcpListener::bind(data_server.as_str())
         .expect("Could not open data serve");
@@ -257,7 +259,20 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             }
             "pasv" => {
                 if logged_in {
-                    server::handle_mode(&mut client, ftp_mode, &data_port, &mut data_listener);
+                    server::handle_mode(&mut client, ftp_mode, &data_port, &args);
+
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "port" => {
+                if logged_in {
+                    actv_socket_addr = port_addr(args);
+                    ftp_mode = FtpMode::Active(actv_socket_addr);
+
+                    server::handle_mode(&mut client, ftp_mode, &data_port, &args);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
@@ -378,6 +393,15 @@ fn get_user_list() -> HashMap<String, user::User> {
     }
 
     map
+
+}
+
+fn port_addr(args: &str) -> SocketAddrV4 {
+    let nums: Vec<u8> = args.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
+    let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
+    let port = server::to_ftp_port(nums[4] as u16, nums[5] as u16);
+    let addr = SocketAddrV4::new(ip, port);
+    addr
 
 }
 
