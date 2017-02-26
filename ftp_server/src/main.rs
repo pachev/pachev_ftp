@@ -1,4 +1,5 @@
 extern crate argparse; //argument parsing such as -h -d etc..
+extern crate rand;
 #[macro_use]
 extern crate log;
 
@@ -182,8 +183,8 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
     server::write_response(&mut client, &msg);
 
     loop {
-        let mut response = String::new();
 
+        let mut response = String::new();
         client.read_line(&mut response).expect("Could not read stream message");
 
         let line = response.trim();
@@ -293,6 +294,15 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             "stor" => {
                 if logged_in {
                     mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "stou" => {
+                if logged_in {
+                    mc::stou(&mut client, &user, ftp_mode, &args, &data_listener);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
