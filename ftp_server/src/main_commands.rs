@@ -313,7 +313,7 @@ pub fn rnfr(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
                 println!("Curr {}\nTo: {}", from_path, to_path);
                 fs::rename(from, to).expect("could not rename file");
                 server::write_response(client,
-                                       &format!("{} Success Renaming\r\n", server::LOGGED_IN));
+                                       &format!("{} Success Renaming\r\n", server::CWD_CONFIRMED));
             }
             _ => {
                 server::write_response(client,
@@ -329,4 +329,19 @@ pub fn rnfr(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
     }
 
 }
-pub fn rnto(client: &mut BufReader<TcpStream>, user: &User, args: &str) {}
+
+pub fn dele(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
+    let full_path = format!("{}/{}", user.cur_dir, args);
+    let mut remote = Path::new(&full_path);
+
+    if remote.exists() && !remote.is_dir() {
+        fs::remove_file(remote).expect("Could not delete file");
+
+        server::write_response(client,
+                               &format!("{} Success Deleting\r\n", server::CWD_CONFIRMED));
+
+    } else {
+        server::write_response(client,
+                               &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
+    }
+}

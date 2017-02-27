@@ -265,6 +265,15 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                                                     server::AUTHENTICATION_FAILED));
                 }
             }
+            "dele" => {
+                if logged_in {
+                    mc::dele(&mut client, &user, &args);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
             "list" => {
                 if logged_in {
                     mc::list(&mut client,
