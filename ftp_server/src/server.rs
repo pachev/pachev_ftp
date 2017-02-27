@@ -1,7 +1,7 @@
 use std::io::prelude::*; //the standard io functions that come with rust
 use std::os::unix::fs::PermissionsExt;
 use std::collections::HashMap;
-use std::io::{BufWriter, BufReader};
+use std::io::{BufWriter, BufReader, Write};
 use std::string::String;
 use std::net::{TcpStream, TcpListener, Shutdown, SocketAddrV4};
 use std::path::Path;
@@ -22,8 +22,10 @@ pub const LOGGED_IN: u32 = 230;
 pub const CWD_CONFIRMED: u32 = 250;
 pub const PATHNAME_AVAILABLE: u32 = 257;
 pub const PASSWORD_EXPECTED: u32 = 331;
+pub const ITEM_EXISTS: u32 = 350;
 pub const INVALID_USER_OR_PASS: u32 = 430;
 pub const NOT_UNDERSTOOD: u32 = 500;
+pub const BAD_SEQUENCE: u32 = 501;
 pub const ILLEGAL_PORT: u32 = 500;
 pub const AUTHENTICATION_FAILED: u32 = 530;
 pub const NO_ACCESS: u32 = 550;
@@ -322,6 +324,20 @@ pub fn write_to_file(file: &mut File, stream: &mut TcpStream) {
         }
     }
 }
+
+pub fn append_to_file(file: &mut File, stream: &mut TcpStream) {
+    let mut client = BufReader::new(stream);
+    let mut buf = String::new();
+    let mut buf_bytes = Vec::new();
+
+    println!("Trying to read meassage");
+    client.read_to_end(&mut buf_bytes).expect("could nto read message");
+    println!("Message read");
+
+    println!("Trying to write meassage");
+    file.write_all(&buf_bytes);
+}
+
 
 pub fn to_ftp_port(b1: u16, b2: u16) -> u16 {
     b1 * 256 + b2

@@ -1,6 +1,7 @@
 [package]
 name = "ftp_server"
 version = "0.1.0"
+description = "FTP Server implemented in Rust For CNT4713"
 authors = ["Pachev Joseph <pachevjoseph@gmail.com>"]
 
 [dependencies]

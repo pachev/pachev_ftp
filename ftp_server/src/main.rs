@@ -1,3 +1,6 @@
+//! FTP Server implemented in rust for CNT4713 Net Centric a
+//! Florida International University
+
 extern crate argparse; //argument parsing such as -h -d etc..
 extern crate rand;
 #[macro_use]
@@ -25,7 +28,6 @@ use std::collections::HashMap;
 use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue};
 
 //TODO implement this: https://github.com/Evrey/passwors#passwors-usage
-//TODO: For configuration file, loop through at beginning of file looking for users
 //TODO: Logger for rust is iumplemented using the log crate https://doc.rust-lang.org/log/log/index.html
 
 
@@ -37,7 +39,6 @@ mod main_commands;
 use user::User;
 use server::FtpMode;
 use main_commands as mc;
-
 
 #[derive(Debug, Clone)]
 struct Arguements {
@@ -55,6 +56,16 @@ struct Arguements {
 
 //These are the defaults incase no arguements are provided
 impl Arguements {
+    /// A struct that handles all the command line arguements
+    ///
+    /// # Otions supported supported
+    /// - `-h` for hostname
+    /// - `-p` for port
+    /// - `--pasive` to enable passive mode
+    ///
+    /// # Remarks
+    ///
+    /// It was easier to use a tested crate rather than parsing argument myself
     fn new() -> Arguements {
         Arguements {
             ftp_port: "2115".to_string(),
@@ -119,7 +130,6 @@ fn main() {
         ap.refer(&mut arguements.run_test_file)
             .add_option(&["-t", "--test-file"], StoreOption, "location of test file");
 
-
         ap.parse_args_or_exit();
     }
 
@@ -156,6 +166,15 @@ fn main() {
     }
 }
 
+/// # handle_client
+///
+/// This is the main function that handles the client thread
+///
+/// # Arguements
+///
+/// - client
+/// - data_port
+/// - map
 fn handle_client(mut client: &mut BufReader<TcpStream>,
                  data_port: &i32,
                  mut map: &HashMap<String, user::User>) {
@@ -217,6 +236,15 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                     server::write_response(client,
                                            &format!("{} Badd sequence of commands\r\n",
                                                     server::NOT_UNDERSTOOD));
+                }
+            }
+            "appe" => {
+                if logged_in {
+                    mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
                 }
             }
             "cdup" => {
@@ -285,6 +313,15 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             "retr" => {
                 if logged_in {
                     mc::retr(&mut client, &user, ftp_mode, &args, &data_listener);
+                } else {
+                    server::write_response(&mut client,
+                                           &format!("{} Not Logged In\r\n",
+                                                    server::AUTHENTICATION_FAILED));
+                }
+            }
+            "rnfr" => {
+                if logged_in {
+                    mc::rnfr(&mut client, &user, &args);
                 } else {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
