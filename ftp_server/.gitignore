@@ -2,4 +2,4 @@ target
 ftproot
 users.cfg
 conf/
-log/
+logs/

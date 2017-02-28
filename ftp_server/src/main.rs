@@ -28,6 +28,7 @@ use std::path::Path;
 use std::fs;
 use std::fs::OpenOptions;
 use std::fs::File;
+use std::process;
 
 use std::env; //To collect arguements and variables
 // use std::process::exit; //Gracefully exiting
@@ -39,6 +40,7 @@ use slog::DrainExt;
 
 //TODO: implement this: https://github.com/Evrey/passwors#passwors-usage
 //TODO: Add logger information for entire program
+//TODO: Add Mutex to decrement port_count after client connection
 
 
 // Local Modules
@@ -95,7 +97,7 @@ impl Settings {
             data_port_range: "27500-27999".to_string(),
             run_test_file: "".to_string(),
             config_file: "".to_string(),
-            log_file: "log/fserver.log".to_string(),
+            log_file: "logs/fserver.log".to_string(),
             MAX_USERS: "200".to_string(),
             MAX_ATTEMPTS: "3".to_string(),
         }
@@ -162,6 +164,41 @@ fn main() {
     }
     settings.passive = passive;
 
+    let service_addr = format!("127.0.0.1:{}", settings.service_port);
+    let listener = TcpListener::bind(service_addr.as_str())
+        .expect("Could not bind to service port");
+
+    let mut users: HashMap<String, user::User> = HashMap::new();
+    users = get_user_list(&settings);
+
+    let (stream, _) = listener.accept().expect("Could not establish connection");
+    let mut client = BufReader::new(stream);
+    server::write_response(&mut client, "===Service Socket for FTP Server===\r\n");
+
+
+    loop {
+
+        let mut response = String::new();
+        client.read_line(&mut response).expect("Could not read stream message");
+
+        println!("CLIENT: {}", response);
+        match response.trim().to_lowercase().as_ref() {
+            "start_server" => {
+                start_server(&mut settings, &mut users);
+            }
+            "stop_server" => {
+                process::exit(1);
+            }
+            _ => {
+                server::write_response(&mut client, "Bad command\r\n");
+            }
+        }
+    }
+
+}
+
+fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>) {
+
     let log_path = Path::new(&settings.log_file);
     let log_file = OpenOptions::new()
         .create(true)
@@ -180,17 +217,21 @@ fn main() {
     create_root(&settings);
 
     let server = format!("127.0.0.1:{}", settings.ftp_port);
-    let listener = TcpListener::bind(server.as_str()).expect("Could not bind to socket");
+    let listener = TcpListener::bind(server.as_str()).expect("Could not bind to main port");
     let data_port_range = get_data_ports(format!("{}", settings.data_port_range));
 
-    let mut users: HashMap<String, user::User> = HashMap::new();
-    users = get_user_list(&settings);
     let mut port_count = 0;
 
 
     println!("Welcome to Pachev's Famous Rusty FTP Server");
 
+
     for stream in listener.incoming() {
+        if (port_count >= 200) {
+            info!("Reached client threshold");
+            continue;
+        }
+
         let data_port = data_port_range[port_count];
         let mut stream = stream.expect("Could not create TCP Stream");
 
