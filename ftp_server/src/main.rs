@@ -37,9 +37,8 @@ use std::collections::HashMap;
 use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue, StoreFalse};
 use slog::DrainExt;
 
-//TODO implement this: https://github.com/Evrey/passwors#passwors-usage
-//TODO: Logger for rust is iumplemented using the log crate https://doc.rust-lang.org/log/log/index.html
-//TODO: Implent a log file output https://github.com/slog-rs/slog
+//TODO: implement this: https://github.com/Evrey/passwors#passwors-usage
+//TODO: Add logger information for entire program
 
 
 // Local Modules
@@ -504,13 +503,13 @@ fn initialize_user(name: &str, pass: &str, role: &str, root: &str) -> User {
     match role {
 
         "admin" => {
-            println!("This user is an admin");
+            info!("This user {} is an admin", name);
             let admin_path = format!("{}/ftproot", cur_directory);
             user.path = format!("{}", admin_path).to_string();
 
         }
         _ => {
-            println!("This user is regular");
+            info!("This user {} is regular", name);
             let user_path = format!("{}/{}/{}", cur_directory, root, name);
             user.path = user_path;
         }

@@ -34,11 +34,13 @@ pub fn list(client: &mut BufReader<TcpStream>,
             data_port: &i32,
             listener: &TcpListener) {
 
-    //getting a head start here in order to prvent slow connection
+
 
     match mode {
         FtpMode::Passive => {
 
+            info!("{} in passive mode requesting LIST command", user.name);
+            //getting a head start here in order to prvent slow connection
             let (stream, addr) = listener.accept().expect("Could not accept connection");
             server::write_response(client,
                                    &format!("{} Openning ASCII mode data for file list\r\n",
@@ -54,6 +56,7 @@ pub fn list(client: &mut BufReader<TcpStream>,
         }
 
         FtpMode::Active(addr) => {
+            info!("{} in passive mode requesting LIST command", user.name);
             server::write_response(client,
                                    &format!("{} Openning ASCII mode data for file list\r\n",
                                             server::OPENNING_DATA_CONNECTION));
