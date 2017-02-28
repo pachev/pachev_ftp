@@ -59,6 +59,7 @@ pub fn list(client: &mut BufReader<TcpStream>,
                                             server::OPENNING_DATA_CONNECTION));
             let mut stream = TcpStream::connect(addr).expect("Could not connect to addr");
 
+
             server::ftp_ls(&user, &mut stream, args);
             server::write_response(client,
                                    &format!("{} Transfer Complete\r\n",
@@ -72,7 +73,7 @@ pub fn list(client: &mut BufReader<TcpStream>,
 }
 
 
-pub fn stor(client: &mut BufReader<TcpStream>,
+pub fn stor(mut client: &mut BufReader<TcpStream>,
             user: &User,
             mode: FtpMode,
             args: &str,
@@ -82,34 +83,19 @@ pub fn stor(client: &mut BufReader<TcpStream>,
     match mode {
         FtpMode::Passive => {
             let (stream, addr) = listener.accept().expect("Could not accept connection");
-            server::write_response(client,
-                                   &format!("{} Openning binary mode to receive{}\r\n",
-                                            server::OPENNING_DATA_CONNECTION,
-                                            args));
             let mut data_stream = stream;
-            let full_path = format!("{}/{}", user.cur_dir, args);
 
-            let remote = Path::new(&full_path);
-
-            if !remote.is_dir() {
-                let mut file = File::create(remote).expect("Could not create file to store");
-                server::write_to_file(&mut file, &mut data_stream);
-                //TODO: Add how long it took to transfer file
-                server::write_response(client,
-                                       &format!("{} Transfer Complete\r\n",
-                                                server::CLOSING_DATA_CONNECTION));
-
-            } else {
-                server::write_response(client,
-                                       &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
-            }
+            stor_file(&mut client, user, &mut data_stream, args);
 
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
 
         FtpMode::Active(addr) => {
-            println!("mode not yet implemented");
+
+            let mut data_stream = TcpStream::connect(addr).expect("Could not connect to addr");
+            stor_file(&mut client, user, &mut data_stream, args);
+            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
         _ => println!("Mode not implemented"),
@@ -117,7 +103,7 @@ pub fn stor(client: &mut BufReader<TcpStream>,
 
 }
 
-pub fn retr(client: &mut BufReader<TcpStream>,
+pub fn retr(mut client: &mut BufReader<TcpStream>,
             user: &User,
             mode: FtpMode,
             args: &str,
@@ -129,37 +115,17 @@ pub fn retr(client: &mut BufReader<TcpStream>,
         FtpMode::Passive => {
 
             let (stream, addr) = listener.accept().expect("Could not accept connection");
-            server::write_response(client,
-                                   &format!("{} Openning binary mode to transfer {}\r\n",
-                                            server::OPENNING_DATA_CONNECTION,
-                                            args));
             let mut data_stream = stream;
-            let full_path = format!("{}/{}", user.cur_dir, args);
-            println!("{} requested file", full_path);
 
-            let local = Path::new(&full_path);
-
-            if !local.is_dir() && local.exists() {
-                let mut file = File::open(local).expect("Could not create file to store");
-
-                server::write_to_stream(&mut file, &mut data_stream);
-
-                //TODO: Add how long it took to transfer file
-                server::write_response(client,
-                                       &format!("{} Transfer Complete\r\n",
-                                                server::CLOSING_DATA_CONNECTION));
-
-            } else {
-                server::write_response(client,
-                                       &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
-            }
-
+            retr_file(&mut client, user, &mut data_stream, args);
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
 
         FtpMode::Active(addr) => {
-            println!("mode not yet implemented");
+            let mut data_stream = TcpStream::connect(addr).expect("Could not connect to addr");
+            retr_file(&mut client, user, &mut data_stream, args);
+            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
         _ => println!("Mode not implemented"),
@@ -169,56 +135,47 @@ pub fn retr(client: &mut BufReader<TcpStream>,
 }
 
 
-pub fn stou(client: &mut BufReader<TcpStream>,
+pub fn stou(mut client: &mut BufReader<TcpStream>,
             user: &User,
             mode: FtpMode,
             args: &str,
             listener: &TcpListener) {
 
+    //This is in case the file name is not unique
+    let mut rng = rand::thread_rng();
+
+    let full_path = format!("{}/{}", user.cur_dir, args);
+    let s = rng.gen_ascii_chars().take(8).collect::<String>();
+
+    let mut remote = Path::new(&full_path);
 
     match mode {
+
         FtpMode::Passive => {
             let (stream, addr) = listener.accept().expect("Could not accept connection");
 
-            //This is in case the file name is not unique
-            let mut rng = rand::thread_rng();
             let mut data_stream = stream;
 
-            let full_path = format!("{}/{}", user.cur_dir, args);
-            let s = rng.gen_ascii_chars().take(8).collect::<String>();
-
-            let unique_path = format!("{}/{}", user.cur_dir, s);
-
-            let mut remote = Path::new(&full_path);
-
             if remote.exists() {
-                remote = Path::new(&unique_path);
-            }
-
-            server::write_response(client,
-                                   &format!("{} Openning binary mode to receive {}\r\n",
-                                            server::OPENNING_DATA_CONNECTION,
-                                            s));
-
-            if !remote.is_dir() {
-                let mut file = File::create(remote).expect("Could not create file to store");
-                server::write_to_file(&mut file, &mut data_stream);
-                //TODO: Add how long it took to transfer file
-                server::write_response(client,
-                                       &format!("{} Transfer Complete\r\n",
-                                                server::CLOSING_DATA_CONNECTION));
-
+                stor_file(&mut client, user, &mut data_stream, &s);
             } else {
-                server::write_response(client,
-                                       &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
+                stor_file(&mut client, user, &mut data_stream, args);
             }
 
-            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
+            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stream");
 
         }
 
         FtpMode::Active(addr) => {
-            println!("mode not yet implemented");
+
+            let mut data_stream = TcpStream::connect(addr).expect("Could not connect to addr");
+            if remote.exists() {
+                stor_file(&mut client, user, &mut data_stream, &s);
+            } else {
+                stor_file(&mut client, user, &mut data_stream, args);
+            }
+
+            data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stream");
 
         }
         _ => println!("Mode not implemented"),
@@ -226,6 +183,7 @@ pub fn stou(client: &mut BufReader<TcpStream>,
 
 }
 
+//TODO: Fix append issue with hanging up
 pub fn appe(client: &mut BufReader<TcpStream>,
             user: &User,
             mode: FtpMode,
@@ -339,6 +297,79 @@ pub fn dele(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
 
         server::write_response(client,
                                &format!("{} Success Deleting\r\n", server::CWD_CONFIRMED));
+
+    } else {
+        server::write_response(client,
+                               &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
+    }
+}
+
+
+pub fn rmd(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
+    let full_path = format!("{}/{}", user.cur_dir, args);
+    let mut remote = Path::new(&full_path);
+
+    if remote.exists() && remote.is_dir() {
+        fs::remove_dir(remote).expect("Could not delete file");
+
+        server::write_response(client,
+                               &format!("{} Success Deleting Directory\r\n",
+                                        server::CWD_CONFIRMED));
+
+    } else {
+        server::write_response(client,
+                               &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
+    }
+}
+
+
+fn stor_file(client: &mut BufReader<TcpStream>, user: &User, stream: &mut TcpStream, args: &str) {
+
+    server::write_response(client,
+                           &format!("{} Opening binary mode to receive {}\r\n",
+                                    server::OPENNING_DATA_CONNECTION,
+                                    args));
+    let mut data_stream = stream;
+    let full_path = format!("{}/{}", user.cur_dir, args);
+
+    let remote = Path::new(&full_path);
+
+    if !remote.is_dir() {
+        let mut file = File::create(remote).expect("Could not create file to store");
+        server::write_to_file(&mut file, &mut data_stream);
+        //TODO: Add how long it took to transfer file
+        server::write_response(client,
+                               &format!("{} Transfer Complete\r\n",
+                                        server::CLOSING_DATA_CONNECTION));
+
+    } else {
+        server::write_response(client,
+                               &format!("{} No Such File or Dir\r\n", server::NO_ACCESS));
+    }
+}
+
+fn retr_file(client: &mut BufReader<TcpStream>, user: &User, stream: &mut TcpStream, args: &str) {
+
+    server::write_response(client,
+                           &format!("{} Openning binary mode to transfer {}\r\n",
+                                    server::OPENNING_DATA_CONNECTION,
+                                    args));
+
+    let full_path = format!("{}/{}", user.cur_dir, args);
+    println!("{} requested file", full_path);
+
+    let mut data_stream = stream;
+    let local = Path::new(&full_path);
+
+    if !local.is_dir() && local.exists() {
+        let mut file = File::open(local).expect("Could not create file to store");
+
+        server::write_to_stream(&mut file, &mut data_stream);
+
+        //TODO: Add how long it took to transfer file
+        server::write_response(client,
+                               &format!("{} Transfer Complete\r\n",
+                                        server::CLOSING_DATA_CONNECTION));
 
     } else {
         server::write_response(client,

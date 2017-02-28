@@ -1,9 +1,9 @@
 use std::io::prelude::*; //the standard io functions that come with rust
 use std::os::unix::fs::PermissionsExt;
 use std::collections::HashMap;
-use std::io::{BufWriter, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::string::String;
-use std::net::{TcpStream, TcpListener, Shutdown, SocketAddrV4};
+use std::net::{TcpStream, SocketAddrV4};
 use std::path::Path;
 use std::fs;
 use std::fs::File;
@@ -60,41 +60,66 @@ pub fn handle_user(mut client: &mut BufReader<TcpStream>,
 
     match map.get(arg) {
         Some(user) => {
-            write_response(client,
-                           &format!("{} Username okay, need password for {}\r\n",
-                                    PASSWORD_EXPECTED,
-                                    arg));
-            let response = read_message(&mut client);
-
-            let line = response.trim();
-
-            let (cmd, password) = match line.find(' ') {
-                Some(pos) => (&line[0..pos], &line[pos + 1..]),
-                None => (line, "".as_ref()),
-            };
-
-            match cmd {
-                "PASS" | "pass" => {
-                    if password.trim() == user.pass {
-                        write_response(client,
-                                       &format!("{} Success Login for {}\r\n", LOGGED_IN, arg));
-                        return true;
-                    } else {
-
-                        write_response(client,
-                                       &format!("{} Invalid Password {}\r\n",
-                                                INVALID_USER_OR_PASS,
-                                                arg));
-                        return false;
-                    }
-                }
-                _ => {
+            match user.role.as_ref() {
+                "notallowed" => {
                     write_response(client,
-                                   &format!("{} {} not understood\r\n", NOT_UNDERSTOOD, cmd));
+                                   &format!("{} {} This user is not allowed\r\n",
+                                            AUTHENTICATION_FAILED,
+                                            arg));
+
                     return false;
                 }
-            }
+                "blocked" => {
+                    write_response(client,
+                                   &format!("{} {} This user is blocked\r\n",
+                                            AUTHENTICATION_FAILED,
+                                            arg));
+                    return false;
 
+                }
+                _ => {
+
+                    write_response(client,
+                                   &format!("{} Username okay, need password for {}\r\n",
+                                            PASSWORD_EXPECTED,
+                                            arg));
+                    let response = read_message(&mut client);
+
+                    let line = response.trim();
+
+                    let (cmd, password) = match line.find(' ') {
+                        Some(pos) => (&line[0..pos], &line[pos + 1..]),
+                        None => (line, "".as_ref()),
+                    };
+
+                    match cmd {
+                        "PASS" | "pass" => {
+                            if password.trim() == user.pass {
+                                write_response(client,
+                                               &format!("{} Success Login for {}\r\n",
+                                                        LOGGED_IN,
+                                                        arg));
+                                return true;
+                            } else {
+
+                                write_response(client,
+                                               &format!("{} Invalid Password {}\r\n",
+                                                        INVALID_USER_OR_PASS,
+                                                        arg));
+                                return false;
+                            }
+                        }
+                        _ => {
+                            write_response(client,
+                                           &format!("{} {} not understood\r\n",
+                                                    NOT_UNDERSTOOD,
+                                                    cmd));
+                            return false;
+                        }
+                    }
+
+                }
+            }
         }
         None => {
 
@@ -186,7 +211,6 @@ pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
 
 
 
-//TODO: Role check in main function instead of here
 pub fn mkd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
 
     let new_dir = format!("{}/{}", user.cur_dir, args);
@@ -201,7 +225,6 @@ pub fn mkd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
 
 }
 
-//TODO: Role check in main function instead of here
 //REFRACTOR: Consider turning type into an ENUM
 pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
     match args {
@@ -220,10 +243,7 @@ pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
 
 
 //REFRACTOR: Redo this logic to for more succinct code
-pub fn handle_mode(client: &mut BufReader<TcpStream>,
-                   ftp_mode: FtpMode,
-                   data_port: &i32,
-                   args: &str) {
+pub fn handle_mode(client: &mut BufReader<TcpStream>, ftp_mode: FtpMode, data_port: &i32) {
 
     match ftp_mode {
         FtpMode::Passive => {
@@ -239,26 +259,10 @@ pub fn handle_mode(client: &mut BufReader<TcpStream>,
         }
 
         FtpMode::Active(addr) => {
-            match TcpStream::connect(addr) {
-                Ok(stream) => {
-                    write_response(client,
-                                   &format!("{} Port command successful\r\n",
+            write_response(client,
+                           &format!("{} Port command successful\r\n",
                                     OPERATION_SUCCESS,
                                     ));
-                }
-                Err(d) => {
-                    info!("{}", d);
-                    write_response(client,
-                                   &format!("{} Illegal Port Command\r\n",
-                                    ILLEGAL_PORT,
-                                    ));
-                }
-
-            }
-        }
-        _ => {
-            write_response(client,
-                           &format!("{} Bad sequence of commands.\r\n", NOT_UNDERSTOOD));
         }
     }
 }
@@ -270,11 +274,9 @@ pub fn handle_mode(client: &mut BufReader<TcpStream>,
 //and write a file instead of directly to stream
 pub fn ftp_ls(user: &User, mut stream: &mut TcpStream, args: &str) {
     //HANDLE not a directory
-    let mut cur_dir = String::new();
+    let mut cur_dir = format!("{}", user.cur_dir);
 
-    if args.is_empty() {
-        cur_dir = format!("{}", user.cur_dir);
-    } else {
+    if !args.is_empty() {
         cur_dir = format!("{}/{}", user.cur_dir, args);
     }
 
@@ -282,6 +284,7 @@ pub fn ftp_ls(user: &User, mut stream: &mut TcpStream, args: &str) {
 
     println!("cur_dir {}", path.display());
     let mut paths = fs::read_dir(path).expect("Could not read directory for listing {}");
+    //TODO: check here for
 
     for path in paths {
         let path = path.unwrap().path();
