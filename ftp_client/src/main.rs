@@ -1,11 +1,18 @@
 extern crate argparse; //argument parsing such as -h -d etc..
 extern crate rpassword; //hidden passwords
+extern crate ini;
+
+//Reading from config files
+use ini::Ini;
+
 
 use std::io::prelude::*; //the standard io functions that come with rust
+use std::process;
 use std::io::BufReader; //the standard io functions that come with rust
 use std::net::TcpStream;
 use std::net::SocketAddrV4;
 use std::thread::spawn; //For threads
+use std::io;
 
 use std::string::String;
 use std::str::FromStr;
@@ -16,50 +23,56 @@ use std::process::exit; //Gracefully exiting
 use std::iter::Iterator;
 use std::collections::HashMap;
 
-use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue};
+use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue, StoreFalse};
 use rpassword::read_password;
 use rpassword::prompt_password_stdout;
 
-//helper file for client functions
+//helper files for client functions
 mod client;
+mod utils;
+
+
+
 //This section here defines the arguements that the ftp_client will
 //initally take when being called
 #[derive(Debug, Clone)]
 struct Arguements {
     hostname: String,
     ftp_port: String,
+    ftp_mode: String,
     username: Option<String>,
     password: Option<String>,
     passive: bool,
-    active: bool,
     debug: bool,
     verbose: bool,
-    data_port_range: Option<String>,
-    run_test_file: Option<String>,
-    config_file: Option<String>,
+    data_port_range: String,
+    run_test_file: String,
+    config_file: String,
     run_default: bool,
-    l_all: Option<String>,
-    l_only: Option<String>,
+    l_all: String,
+    l_only: String,
+    log_file: String,
 }
 
 //These are the defaults incase no arguements are provided
 impl Arguements {
     fn new() -> Arguements {
         Arguements {
-            hostname: "cnt4713.cs.fiu.edu".to_string(),
+            hostname: "".to_string(),
             ftp_port: "21".to_string(),
+            ftp_mode: "PASSIVE".to_string(),
             username: None,
             password: None,
-            passive: false,
-            active: false,
+            passive: true,
             debug: false,
             verbose: false,
-            data_port_range: None,
-            run_test_file: None,
-            config_file: None,
+            data_port_range: "".to_string(),
+            run_test_file: "".to_string(),
+            config_file: "".to_string(),
             run_default: false,
-            l_all: None,
-            l_only: None,
+            l_all: "".to_string(),
+            l_only: "logs/ftpclient.log".to_string(),
+            log_file: "".to_string(),
         }
     }
 }
@@ -69,19 +82,27 @@ fn main() {
 
     //Using argparse to make cmd line parsing manageable
     let mut arguements = Arguements::new();
+    let conf = Ini::load_from_file("fclient.cfg").unwrap();
+
+    //Loading default setting from conf file
+    load_defaults(&mut arguements, &conf);
+
+    //This is due to borrowing issue I'm setting a default mode of true
+    //but use the argparser to allow the user to set the transfer mode
+    let mut passive = true;
 
     {
         let mut ap = ArgumentParser::new();
         ap.set_description("Pachev's FTP client");
 
         ap.refer(&mut arguements.hostname)
-            .add_option(&["--host", "-h"], Store, "Server hostname");
+            .add_argument("hostname", Store, "Server hostname");
 
         ap.refer(&mut arguements.ftp_port)
-            .add_option(&["--port", "-p"], Store, "Server Port");
+            .add_argument("port", Store, "Server Port");
 
         ap.add_option(&["--info", "-i", "--list-commands"],
-                      Print(COMMANDS_HELP.to_string()),
+                      Print(utils::COMMANDS_HELP.to_string()),
                       "List supported commands");
         ap.add_option(&["--version", "-v"],
                       Print("v0.1.0".to_string()),
@@ -99,9 +120,9 @@ fn main() {
                         "Use passive mode and 
                                 listen on \
                          provided address for data transfers");
-        ap.refer(&mut arguements.active)
+        ap.refer(&mut passive)
             .add_option(&["--active"],
-                        StoreTrue,
+                        StoreFalse,
                         "Use active mode and 
                                 listen on provided \
                          address for data transfers");
@@ -113,45 +134,107 @@ fn main() {
             .add_option(&["-V", "--verbose"], StoreTrue, "Sets verbose  mode on");
 
         ap.refer(&mut arguements.data_port_range)
-            .add_option(&["--dpr"], StoreOption, "Sets a range of ports for data");
+            .add_option(&["--dpr"], Store, "Sets a range of ports for data");
 
         ap.refer(&mut arguements.config_file)
-            .add_option(&["-c", "--config"],
-                        StoreOption,
-                        "location of configuration file");
+            .add_option(&["-c", "--config"], Store, "location of configuration file");
 
         ap.refer(&mut arguements.run_test_file)
-            .add_option(&["-t", "--test-file"], StoreOption, "location of test file");
+            .add_option(&["-t", "--test-file"], Store, "location of test file");
 
         ap.refer(&mut arguements.run_default)
             .add_option(&["-T"], StoreTrue, "Runs default test file");
 
         ap.refer(&mut arguements.l_all)
-            .add_option(&["--LALL"], StoreOption, "Location to store all log output");
+            .add_option(&["--LALL"], Store, "Location to store all log output");
 
         ap.refer(&mut arguements.l_only)
-            .add_option(&["--LONLY"],
-                        StoreOption,
-                        "Location to store all log output");
+            .add_option(&["--LONLY"], Store, "Location to store all log output");
 
         ap.parse_args_or_exit();
     }
+    arguements.passive = passive;
 
     //Uses either the parsed info or defaults to determiner server
-    let mut server = format!("{}:{}", arguements.hostname, arguements.ftp_port);
-    let mut myclient = TcpStream::connect(server.as_str()).expect("Error Connecting to server");
-    let mut stream = BufReader::new(myclient);
-    let mut line = String::new();
-    println!("Success Connecting to server");
-    stream.read_line(&mut line).expect("Something wwent wrong reading from server");
 
+    let mut stream = start_ftp_client(&mut arguements);
     login(&mut stream, &arguements);
     cmd_loop(&mut stream);
 }
 
+fn start_ftp_client(arguements: &mut Arguements) -> BufReader<TcpStream> {
+
+    //this will serve as a holder
+    let myclient: TcpStream;
+
+    /*
+     * Here is the loop for starting the program
+     * this handles the cases where no localhost is provided and
+     * where an empty hostname is provided. The loop will continue
+     * as long as we are not able to connec to a socket. The only command
+     * available during the loop are open, quit, help
+     */
+    loop {
+
+        if !arguements.hostname.is_empty() {
+            let server = format!("{}:{}", arguements.hostname, arguements.ftp_port);
+            match TcpStream::connect(server.as_str()) {
+                Ok(stream) => {
+                    myclient = stream;
+                    break;
+                }
+                Err(_) => {
+                    arguements.hostname = "".to_string();
+                    arguements.ftp_port = "".to_string();
+                    println!("Could not connect to host");
+                }
+            }
+        } else {
+
+            let (mut cmd, mut args) = get_commands();
+
+            match cmd.to_lowercase().as_ref() {
+                "open" => {
+                    let (host, port) = match args.find(' ') {
+                        Some(pos) => (&args[0..pos], &args[pos + 1..]),
+                        None => (args.as_ref(), "21".as_ref()),
+                    };
+
+                    let server = format!("{}:{}", host, port);
+                    match TcpStream::connect(server.as_str()) {
+                        Ok(stream) => {
+                            arguements.hostname = "".to_string();
+                            arguements.ftp_port = "".to_string();
+                            myclient = stream;
+                            break;
+                        }
+                        Err(_) => {
+                            println!("Could not connect to host");
+                        }
+
+                    }
+                }
+                "quit" | "exit" => {
+                    println!("Goodbye");
+                    process::exit(1);
+                }
+                "help" => println!("{}", utils::COMMANDS_HELP),
+                _ => {
+                    println!("Not Connected");
+                }
+            }
+        }
+    }
+
+    let mut stream = BufReader::new(myclient);
+    println!("Success Connecting to server");
+    let response = client::read_message(&mut stream);
+
+    stream
+}
+
+
 fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
-    let mut stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
     let mut logged_in: bool = false;
     let os_user = std::env::var("USER").unwrap_or(String::new());
 
@@ -160,9 +243,9 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
             Some(ref usr) => usr.to_string(),
             None => {
                 print!("User ({}) ", os_user);
-                stdout.flush().expect("Something went wrong flushing");
+                io::stdout().flush().expect("Something went wrong flushing");
                 let mut line = String::new();
-                match stdin.read_line(&mut line) {
+                match io::stdin().read_line(&mut line) {
                     Err(_) => return,
                     Ok(_) => {
                         match line.trim().is_empty() {
@@ -219,39 +302,26 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 
 
 fn cmd_loop(mut client: &mut BufReader<TcpStream>) {
-    let mut stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
 
-    'looper: loop {
-        print!("ftp>");
-        stdout.flush().unwrap();
+    loop {
+        let (cmd, args) = get_commands();
 
-        let mut buf = String::new();
-        stdin.read_line(&mut buf).unwrap();
-
-        let line = buf.trim();
-
-        let (cmd, args) = match line.find(' ') {
-            Some(pos) => (&line[0..pos], &line[pos + 1..]),
-            None => (line, "".as_ref()),
-        };
-
-        match cmd {
+        match cmd.to_lowercase().as_ref() {
             "ls" | "list" => client::list(&mut client, &args),
             "mkdir" | "mkd" => client::make_dir(&mut client, &args),
             "cd" | "cwd" => client::change_dir(&mut client, &args),
             "dele" | "del" => client::dele(&mut client, &args),
             "cdup" | "cdu" => client::change_dir_up(&mut client),
             "pwd" => client::print_working_dir(&mut client),
-            "put" | "stor" => client::put(&mut client, args),
-            "get" | "retr" => client::get(&mut client, args),
+            "put" | "stor" => client::put(&mut client, &args),
+            "get" | "retr" => client::get(&mut client, &args),
             "rm" | "rmd" => client::remove_dir(&mut client, &args),
             "quit" | "exit" => {
                 println!("Goodbye");
                 client::quit_server(&mut client);
-                break 'looper;
+                break;
             }
-            "help" => println!("{}", COMMANDS_HELP),
+            "help" => println!("{}", utils::COMMANDS_HELP),
             _ => {
                 println!("Invalid Command");
             }
@@ -259,43 +329,47 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>) {
 
     }
 
-
 }
 
+fn get_commands() -> (String, String) {
 
+    print!("ftp>");
+    io::stdout().flush().unwrap();
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf).unwrap();
+    let line = buf.trim();
+    let (cmd, args) = match line.find(' ') {
+        Some(pos) => (&line[0..pos], &line[pos + 1..]),
+        None => (line, "".as_ref()),
+    };
 
-const COMMANDS_HELP: &'static str =
-    "
-Pachev Joseph - 5699044
-Commands: 
-        user - Sends the username
-        pass - Send \
-     the password
-        cwd - Changes working directory
-        cdup - Changes to parent \
-     directory
-        logout - Terminates session
-        retr - Retrieves a file
-        stor - \
-     Stores a file
-        stou - Stores a file uniquely
-        appe - Appends to a file
-        \
-     type - Stes tranfer type to Active or Passive
-        rnrf - Rename From
-        rnto - \
-     Rename To
-        abor - Aborts a transfer
-        dele - Deletes a file
-        rmd - \
-     Removes a directory
-        mkd - Makes a directory
-        pwd - Prints working directory
-        \
-     list - Lists files
-        noop - Does nothing
-        help - Prints Help Menu
-        size \
-     - Prints size of file
-        nlist - Name list of diretory
-        ";
+    let s1 = format!("{}", cmd);
+    let s2 = format!("{}", args);
+
+    (s1, s2)
+}
+
+fn load_defaults(settings: &mut Arguements, conf: &Ini) {
+    let defaults = conf.section(Some("default".to_owned())).unwrap();
+
+    settings.ftp_port = format!("{}",
+                                defaults.get("default_ftp_port")
+                                    .unwrap_or(&settings.ftp_port));
+    settings.data_port_range = format!("{}-{}",
+                                       defaults.get("data_port_min")
+                                           .unwrap_or(&"27500".to_string()),
+                                       defaults.get("data_port_max")
+                                           .unwrap_or(&"2799".to_string()));
+    settings.log_file = format!("{}",
+                                defaults.get("default_log_file").unwrap_or(&settings.log_file));
+    settings.ftp_mode = format!("{}",
+                                defaults.get("default_mode").unwrap_or(&"PASSIVE".to_string()));
+    match settings.ftp_mode.to_lowercase().as_ref() {
+        "passive" => {
+            settings.passive = true;
+        }
+        _ => {
+            settings.passive = false;
+        }
+    }
+}
