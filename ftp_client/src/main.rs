@@ -9,8 +9,7 @@ use ini::Ini;
 use std::io::prelude::*; //the standard io functions that come with rust
 use std::process;
 use std::io::BufReader; //the standard io functions that come with rust
-use std::net::TcpStream;
-use std::net::SocketAddrV4;
+use std::net::{SocketAddrV4, Ipv4Addr, TcpStream};
 use std::thread::spawn; //For threads
 use std::io;
 
@@ -31,6 +30,8 @@ use rpassword::prompt_password_stdout;
 mod client;
 mod utils;
 
+
+use client::FtpMode;
 
 
 //This section here defines the arguements that the ftp_client will
@@ -303,6 +304,18 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool
 
 fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 
+    let mut actv_socket_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27598);
+
+    let mut ftp_mode = match arguements.passive {
+        true => {
+            // println!("Running in passive mode");
+            FtpMode::Passive
+        }
+        false => {
+            // println!("Running in active mode");
+            FtpMode::Active(actv_socket_addr)
+        }
+    };
     let logged_in = login(&mut client, &arguements);
     let auth_mesg = "You need to be logged in";
 
@@ -310,15 +323,17 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
         let (cmd, args) = get_commands();
         if logged_in {
             match cmd.to_lowercase().as_ref() {
-                "ls" | "list" => client::list(&mut client, &args),
-                "mkdir" | "mkd" => client::make_dir(&mut client, &args),
+                "appe" | "append" => client::appe(&mut client, &args, ftp_mode),
                 "cd" | "cwd" => client::change_dir(&mut client, &args),
-                "dele" | "del" => client::dele(&mut client, &args),
                 "cdup" | "cdu" => client::change_dir_up(&mut client),
+                "dele" | "del" => client::dele(&mut client, &args),
+                "get" | "retr" => client::get(&mut client, &args, ftp_mode),
+                "ls" | "list" => client::list(&mut client, &args, ftp_mode),
+                "mkdir" | "mkd" => client::make_dir(&mut client, &args),
                 "pwd" => client::print_working_dir(&mut client),
-                "put" | "stor" => client::put(&mut client, &args),
-                "get" | "retr" => client::get(&mut client, &args),
+                "put" | "stor" => client::put(&mut client, &args, ftp_mode),
                 "rm" | "rmd" => client::remove_dir(&mut client, &args),
+                // "append" | "appe" => client::appe(&mut client, &args),
                 "quit" | "exit" => {
                     println!("Goodbye");
                     client::quit_server(&mut client);

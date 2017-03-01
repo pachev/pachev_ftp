@@ -11,6 +11,13 @@ pub enum FtpMode {
     Passive,
 }
 
+pub enum FtpType {
+    Binary,
+    ASCII,
+}
+
+
+
 
 //TODO; Reformat code to resue functions  to use for active mode and passive mode
 //Meaning add an extra function that does transfering based on modes
@@ -112,9 +119,7 @@ pub fn quit_server(mut stream: &mut BufReader<TcpStream>) {
 }
 
 //Put a file
-pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = "Type I\r\n".to_string();
-    let mut response = String::new();
+pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode) {
 
     let mut lpath = String::new();
     let mut rpath = String::new();
@@ -130,58 +135,43 @@ pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str) {
         }
     }
 
-    //Set transfer mode to binary
-    write_command(&mut stream, &cmd);
+    let mut response = String::new();
+    set_type(&mut stream, FtpType::Binary);
     response = read_message(&mut stream);
-
-
-    cmd.clear();
-    cmd = "PASV\r\n".to_string();
     response.clear();
-    write_command(&mut stream, &cmd);
 
-    //TODO: Match codes before continuing
-    response = read_message(&mut stream);
+    match ftp_mode {
+        FtpMode::Passive => {
 
-    let start_pos = response.rfind('(').expect("Could not read response from server") + 1;
-    let end_pos = response.rfind(')').expect("could not read response form server");
-    let substr = response[start_pos..end_pos].to_string();
-    let nums: Vec<u8> = substr.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
-    let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
-    let port = to_ftp_port(nums[4] as u16, nums[5] as u16);
-    let addr = SocketAddrV4::new(ip, port);
+            write_command(&mut stream, "PASV \r\n");
+            response = read_message(&mut stream);
+            let addr = get_pasv_address(&response);
+            write_command(&mut stream, &format!("STOR {} \r\n", rpath));
+            stor_file(&addr, &lpath, &mut stream);
 
-    //Calling for the listing of directories
-    cmd.clear();
-    cmd = format!("STOR {}\r\n", rpath);
-    write_command(&mut stream, &cmd);
-    //TODO Spawn a therad here
-    let mut stream2 = (TcpStream::connect(addr)).expect("could not read");
-    response.clear();
-    response = read_message(&mut stream);
+            response.clear();
+            response = read_message(&mut stream);
 
-    let mut file = File::open(lpath).expect("Could not open this file");
-    write_to_stream(&mut file, &mut stream2);
-    stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+        }
+        FtpMode::Active(addr) => {}
+    }
 
-    response.clear();
-    response = read_message(&mut stream);
+
 
 }
 
 //Get a file
-pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = "Type I\r\n".to_string();
+pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode) {
     let mut response = String::new();
-
     let mut lpath = String::new();
     let mut rpath = String::new();
 
+    //TODO: replce tilde with home dir
     let home_dir = env::home_dir().unwrap();
+
     let cur_directory = match env::current_dir() {
         Ok(pwd) => format!("{}", pwd.display()).to_string(),
         Err(err) => format!("{}/{}", home_dir.display(), rpath).to_string(),
-
     };
 
     match args.find(' ') {
@@ -194,98 +184,92 @@ pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str) {
             lpath = format!("{}/{}", cur_directory, rpath).to_string();
         }
     }
-    println!("current_dir:{}  rpath:{}  home_dir:{}",
-             lpath,
-             rpath,
-             home_dir.display());
 
-    //Set transfer mode to binary
-    write_command(&mut stream, &cmd);
+    set_type(&mut stream, FtpType::Binary);
     response = read_message(&mut stream);
-
-
-    cmd.clear();
-    cmd = "PASV\r\n".to_string();
     response.clear();
-    write_command(&mut stream, &cmd);
 
-    //TODO: Match codes before continuing
-    response = read_message(&mut stream);
+    match ftp_mode {
+        FtpMode::Passive => {
+            write_command(&mut stream, "PASV\r\n");
+            response = read_message(&mut stream);
+            let addr = get_pasv_address(&response);
+            write_command(&mut stream, "RETR {}\r\n");
+            get_file(&addr, &rpath, &mut stream);
+            response.clear();
+            response = read_message(&mut stream);
+        }
+        FtpMode::Active(addr) => {}
+    }
 
-    let start_pos = response.rfind('(').expect("Could not read response from server") + 1;
-    let end_pos = response.rfind(')').expect("could not read response form server");
-    let substr = response[start_pos..end_pos].to_string();
-    let nums: Vec<u8> = substr.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
-    let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
-    let port = to_ftp_port(nums[4] as u16, nums[5] as u16);
-    let addr = SocketAddrV4::new(ip, port);
 
-    //Calling for the listing of directories
-    cmd.clear();
-    cmd = format!("RETR {}\r\n", rpath);
-    write_command(&mut stream, &cmd);
-    //TODO Spawn a therad here
-    let mut stream2 = (TcpStream::connect(addr)).expect("could not connect to data streamm");
-    response.clear();
-    response = read_message(&mut stream);
-
-    let mut file = File::create(lpath).expect("Could not open this file");
-    write_to_file(&mut file, &mut stream2);
-    stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
-
-    response.clear();
-    response = read_message(&mut stream);
 
 }
 
 //List Command
-pub fn list(mut stream: &mut BufReader<TcpStream>, args: &str) {
-    let mut cmd = "Type A\r\n".to_string();
+pub fn list(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode) {
+
     let mut response = String::new();
+    set_type(&mut stream, FtpType::ASCII);
 
-    write_command(&mut stream, &cmd);
     response = read_message(&mut stream);
-
-    //Passive connection mode
-    cmd.clear();
-    cmd = "PASV\r\n".to_string();
-    response.clear();
-    write_command(&mut stream, &cmd);
-    response = read_message(&mut stream);
-
-    let start_pos = response.rfind('(').expect("Could not read response from server") + 1;
-    let end_pos = response.rfind(')').expect("could not read response form server");
-    let substr = response[start_pos..end_pos].to_string();
-    let nums: Vec<u8> = substr.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
-    let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
-    let port = to_ftp_port(nums[4] as u16, nums[5] as u16);
-
-    let addr = SocketAddrV4::new(ip, port);
-
-    //Calling for the listing of directories
-    cmd.clear();
-    cmd = format!("LIST {}\r\n", args);
-    write_command(&mut stream, &cmd);
     response.clear();
 
-    //TODO Spawn a therad here
-    println!("remote address: {}:{}", ip, port);
-    let mut stream2 = (TcpStream::connect(addr)).expect("could not connect to server");
+    match ftp_mode {
+        FtpMode::Passive => {
 
-    response.clear();
+            write_command(&mut stream, "PASV \r\n");
+            response = read_message(&mut stream);
+            let addr = get_pasv_address(&response);
+            write_command(&mut stream, &format!("LIST {}\r\n", args));
+            println!("args: {}", args);
+
+            list_file(&addr, args, &mut stream);
+            response.clear();
+            response = read_message(&mut stream);
+
+        }
+        FtpMode::Active(addr) => {}
+    }
+
+}
+
+pub fn appe(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode) {
+
+    let mut lpath = String::new();
+    let mut rpath = String::new();
+
+    match args.find(' ') {
+        Some(pos) => {
+            lpath = args[0..pos].to_string();
+            rpath = args[pos + 1..].to_string();
+        }
+        None => {
+            lpath = args.to_string();
+            rpath = args.to_string();
+        }
+    }
+
+    let mut response = String::new();
+    set_type(&mut stream, FtpType::ASCII);
     response = read_message(&mut stream);
-
-    let mut buf: Vec<u8> = Vec::new();
-    (stream2.read_to_end(&mut buf)).expect("Could not read");
-    let text = (String::from_utf8(buf)).expect("Could not read");
-
-    stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
-
-    println!("{}", text);
     response.clear();
-    response = read_message(&mut stream);
 
-    //Printing listing
+    match ftp_mode {
+        FtpMode::Passive => {
+
+            write_command(&mut stream, "PASV \r\n");
+            response = read_message(&mut stream);
+            let addr = get_pasv_address(&response);
+            write_command(&mut stream, &format!("APPE {} \r\n", rpath));
+            stor_file(&addr, &lpath, &mut stream);
+
+            response.clear();
+            response = read_message(&mut stream);
+
+        }
+        FtpMode::Active(addr) => {}
+    }
 }
 
 
@@ -321,4 +305,82 @@ fn write_to_file(file: &mut File, stream: &mut TcpStream) {
             done = true;
         }
     }
+}
+
+fn set_type(mut stream: &mut BufReader<TcpStream>, ftp_type: FtpType) {
+    match ftp_type {
+        FtpType::Binary => {
+            let mut cmd = "Type I\r\n".to_string();
+            //Set transfer mode to binary
+            write_command(&mut stream, &cmd);
+
+        }
+        FtpType::ASCII => {
+            let mut cmd = "Type A\r\n".to_string();
+            //Set transfer mode to Ascii
+            write_command(&mut stream, &cmd);
+
+        }
+    }
+}
+
+fn get_pasv_address(response: &str) -> SocketAddrV4 {
+    let start_pos = response.rfind('(').expect("Could not read response from server") + 1;
+    let end_pos = response.rfind(')').expect("could not read response form server");
+    let substr = response[start_pos..end_pos].to_string();
+    let nums: Vec<u8> = substr.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
+    let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
+    let port = to_ftp_port(nums[4] as u16, nums[5] as u16);
+    let addr = SocketAddrV4::new(ip, port);
+    addr
+
+}
+
+fn stor_file(addr: &SocketAddrV4, lpath: &str, mut stream: &mut BufReader<TcpStream>) {
+
+    //TODO Spawn a therad here
+    let mut stream2 = TcpStream::connect(addr).expect("could not read connect address");
+    let response = read_message(&mut stream);
+
+    let mut file = match File::open(lpath) {
+        Ok(file) => file,
+        Err(_) => {
+            println!("Error opening file on local");
+            stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+            return;
+        }
+    };
+    write_to_stream(&mut file, &mut stream2);
+    stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+}
+
+fn get_file(addr: &SocketAddrV4, rpath: &str, mut stream: &mut BufReader<TcpStream>) {
+
+    //TODO Spawn a therad here
+    let mut stream2 = TcpStream::connect(addr).expect("could not read connect address");
+    let response = read_message(&mut stream);
+
+    let mut file = match File::open(rpath) {
+        Ok(file) => file,
+        Err(_) => {
+            println!("Error opening file on local");
+            stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+            return;
+        }
+    };
+    write_to_file(&mut file, &mut stream2);
+    stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+}
+
+fn list_file(addr: &SocketAddrV4, rpath: &str, mut stream: &mut BufReader<TcpStream>) {
+
+    //TODO Spawn a therad here
+    let mut stream2 = TcpStream::connect(addr).expect("could not read connect address");
+    let response = read_message(&mut stream);
+
+    let mut buf: Vec<u8> = Vec::new();
+    stream2.read_to_end(&mut buf).expect("Could not read");
+    let text = (String::from_utf8(buf)).expect("Could not read");
+    stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+    println!("{}", text);
 }

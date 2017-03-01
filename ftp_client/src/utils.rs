@@ -33,3 +33,11 @@ Commands:
      - Prints size of file
         nlist - Name list of diretory
         ";
+
+
+//Utility operation to convert port in to two number per RFC
+pub fn split_port(port: u16) -> (u16, u16) {
+    let b1 = port / 256;
+    let b2 = port % 256;
+    (b1, b2)
+}
