@@ -164,36 +164,10 @@ fn main() {
     }
     settings.passive = passive;
 
-    let service_addr = format!("127.0.0.1:{}", settings.service_port);
-    let listener = TcpListener::bind(service_addr.as_str())
-        .expect("Could not bind to service port");
 
     let mut users: HashMap<String, user::User> = HashMap::new();
     users = get_user_list(&settings);
-
-    let (stream, _) = listener.accept().expect("Could not establish connection");
-    let mut client = BufReader::new(stream);
-    server::write_response(&mut client, "===Service Socket for FTP Server===\r\n");
-
-
-    loop {
-
-        let mut response = String::new();
-        client.read_line(&mut response).expect("Could not read stream message");
-
-        println!("CLIENT: {}", response);
-        match response.trim().to_lowercase().as_ref() {
-            "start_server" => {
-                start_server(&mut settings, &mut users);
-            }
-            "stop_server" => {
-                process::exit(1);
-            }
-            _ => {
-                server::write_response(&mut client, "Bad command\r\n");
-            }
-        }
-    }
+    start_server(&mut settings, &mut users);
 
 }
 
