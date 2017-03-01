@@ -157,15 +157,13 @@ fn main() {
 
     //Uses either the parsed info or defaults to determiner server
 
-    let mut stream = start_ftp_client(&mut arguements);
-    login(&mut stream, &arguements);
-    cmd_loop(&mut stream);
+    start_ftp_client(&mut arguements);
 }
 
-fn start_ftp_client(arguements: &mut Arguements) -> BufReader<TcpStream> {
+fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
 
     //this will serve as a holder
-    let myclient: TcpStream;
+    let mut myclient: TcpStream;
 
     /*
      * Here is the loop for starting the program
@@ -176,12 +174,18 @@ fn start_ftp_client(arguements: &mut Arguements) -> BufReader<TcpStream> {
      */
     loop {
 
+
         if !arguements.hostname.is_empty() {
             let server = format!("{}:{}", arguements.hostname, arguements.ftp_port);
             match TcpStream::connect(server.as_str()) {
                 Ok(stream) => {
+                    arguements.hostname = "".to_string();
+                    arguements.ftp_port = "".to_string();
                     myclient = stream;
-                    break;
+                    let mut stream = BufReader::new(myclient);
+                    println!("Success Connecting to server");
+                    let response = client::read_message(&mut stream);
+                    cmd_loop(&mut stream, &arguements);
                 }
                 Err(_) => {
                     arguements.hostname = "".to_string();
@@ -206,7 +210,10 @@ fn start_ftp_client(arguements: &mut Arguements) -> BufReader<TcpStream> {
                             arguements.hostname = "".to_string();
                             arguements.ftp_port = "".to_string();
                             myclient = stream;
-                            break;
+                            let mut stream = BufReader::new(myclient);
+                            println!("Success Connecting to server");
+                            let response = client::read_message(&mut stream);
+                            cmd_loop(&mut stream, &arguements);
                         }
                         Err(_) => {
                             println!("Could not connect to host");
@@ -218,6 +225,9 @@ fn start_ftp_client(arguements: &mut Arguements) -> BufReader<TcpStream> {
                     println!("Goodbye");
                     process::exit(1);
                 }
+                "close" => {
+                    println!("Not Connected");
+                }
                 "help" => println!("{}", utils::COMMANDS_HELP),
                 _ => {
                     println!("Not Connected");
@@ -226,106 +236,123 @@ fn start_ftp_client(arguements: &mut Arguements) -> BufReader<TcpStream> {
         }
     }
 
-    let mut stream = BufReader::new(myclient);
-    println!("Success Connecting to server");
-    let response = client::read_message(&mut stream);
-
-    stream
 }
 
 
-fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
+fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool {
     let mut logged_in: bool = false;
     let os_user = std::env::var("USER").unwrap_or(String::new());
 
-    while !logged_in {
-        let user = match arguements.username {
-            Some(ref usr) => usr.to_string(),
-            None => {
-                print!("User ({}) ", os_user);
-                io::stdout().flush().expect("Something went wrong flushing");
-                let mut line = String::new();
-                match io::stdin().read_line(&mut line) {
-                    Err(_) => return,
-                    Ok(_) => {
-                        match line.trim().is_empty() {
-                            true => os_user.to_string(),
-                            false => line.trim().to_string(),
-                        }
+    let user = match arguements.username {
+        Some(ref usr) => usr.to_string(),
+        None => {
+            print!("User ({}) ", os_user);
+            io::stdout().flush().expect("Something went wrong flushing");
+            let mut line = String::new();
+            match io::stdin().read_line(&mut line) {
+                Err(_) => "".to_string(),
+                Ok(_) => {
+                    match line.trim().is_empty() {
+                        true => os_user.to_string(),
+                        false => line.trim().to_string(),
                     }
                 }
             }
-        };
-
-        let password = match arguements.password {
-            Some(ref pass) => pass.to_string(),
-            None => {
-                match prompt_password_stdout("Password: ") {
-                    Ok(pwd) => pwd.to_string(),
-                    Err(_) => return,
-                }
-            }
-        };
-        let mut line = String::new();
-        let mut cmd = format!("USER {}\r\n", user);
-        let mut response = String::new();
-
-        client::write_command(&mut client, &cmd);
-        response = client::read_message(&mut client);
-
-
-        response.clear();
-        cmd = format!("PASS {}\r\n", password);
-
-        client::write_command(&mut client, &cmd);
-        response = client::read_message(&mut client);
-
-        match client::get_code_from_respone(&response) {
-            Ok(230) => {
-                println!("Success Logging In");
-                logged_in = true;
-            }
-            Ok(n) => {
-                println!("Uncessfull, try again");
-                continue;
-            }
-            Err(e) => break,
         }
+    };
 
+    let password = match arguements.password {
+        Some(ref pass) => pass.to_string(),
+        None => {
+            match prompt_password_stdout("Password: ") {
+                Ok(pwd) => pwd.to_string(),
+                Err(_) => "".to_string(),
+            }
+        }
+    };
+    let mut line = String::new();
+    let mut cmd = format!("USER {}\r\n", user);
+    let mut response = String::new();
 
+    client::write_command(&mut client, &cmd);
+    response = client::read_message(&mut client);
 
+    response.clear();
+    cmd = format!("PASS {}\r\n", password);
 
+    client::write_command(&mut client, &cmd);
+    response = client::read_message(&mut client);
+
+    match client::get_code_from_respone(&response) {
+        Ok(230) => {
+            println!("Success Logging In");
+            logged_in = true;
+        }
+        Ok(_) => {
+            println!("Login Failed");
+            logged_in = false;
+        }
+        Err(e) => println!("Something went wrong"),
     }
+
+    logged_in
 
 }
 
 
 
-fn cmd_loop(mut client: &mut BufReader<TcpStream>) {
+fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
+
+    let logged_in = login(&mut client, &arguements);
+    let auth_mesg = "You need to be logged in";
 
     loop {
         let (cmd, args) = get_commands();
-
-        match cmd.to_lowercase().as_ref() {
-            "ls" | "list" => client::list(&mut client, &args),
-            "mkdir" | "mkd" => client::make_dir(&mut client, &args),
-            "cd" | "cwd" => client::change_dir(&mut client, &args),
-            "dele" | "del" => client::dele(&mut client, &args),
-            "cdup" | "cdu" => client::change_dir_up(&mut client),
-            "pwd" => client::print_working_dir(&mut client),
-            "put" | "stor" => client::put(&mut client, &args),
-            "get" | "retr" => client::get(&mut client, &args),
-            "rm" | "rmd" => client::remove_dir(&mut client, &args),
-            "quit" | "exit" => {
-                println!("Goodbye");
-                client::quit_server(&mut client);
-                break;
+        if logged_in {
+            match cmd.to_lowercase().as_ref() {
+                "ls" | "list" => client::list(&mut client, &args),
+                "mkdir" | "mkd" => client::make_dir(&mut client, &args),
+                "cd" | "cwd" => client::change_dir(&mut client, &args),
+                "dele" | "del" => client::dele(&mut client, &args),
+                "cdup" | "cdu" => client::change_dir_up(&mut client),
+                "pwd" => client::print_working_dir(&mut client),
+                "put" | "stor" => client::put(&mut client, &args),
+                "get" | "retr" => client::get(&mut client, &args),
+                "rm" | "rmd" => client::remove_dir(&mut client, &args),
+                "quit" | "exit" => {
+                    println!("Goodbye");
+                    client::quit_server(&mut client);
+                    process::exit(1);
+                }
+                "help" => println!("{}", utils::COMMANDS_HELP),
+                _ => {
+                    println!("Invalid Command");
+                }
             }
-            "help" => println!("{}", utils::COMMANDS_HELP),
-            _ => {
-                println!("Invalid Command");
+
+        } else {
+            match cmd.to_lowercase().as_ref() { 
+                "quit" | "exit" => {
+                    println!("Goodbye");
+                    client::quit_server(&mut client);
+                    process::exit(1);
+                }
+                "help" => println!("{}", utils::COMMANDS_HELP),
+                "open" => {
+                    println!("Already connected, user close to end connection");
+                }
+
+                "close" => {
+                    println!("Closing connection");
+                    break;
+                }
+                _ => {
+                    println!("You need to be logged in for this command");
+                }
+
             }
         }
+
 
     }
 
