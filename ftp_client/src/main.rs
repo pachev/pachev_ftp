@@ -200,7 +200,7 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
             let (mut cmd, mut args) = get_commands();
 
             match cmd.to_lowercase().as_ref() {
-                "open" => {
+                "open" | "ftp" => {
                     let (host, port) = match args.find(' ') {
                         Some(pos) => (&args[0..pos], &args[pos + 1..]),
                         None => (args.as_ref(), "21".as_ref()),
@@ -223,14 +223,14 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
 
                     }
                 }
-                "quit" | "exit" => {
+                "quit" | "exit" | "!" => {
                     println!("Goodbye");
                     process::exit(1);
                 }
-                "close" => {
+                "close" | "disconnect" => {
                     println!("Not Connected");
                 }
-                "help" => println!("{}", utils::COMMANDS_HELP),
+                "help" | "?" => println!("{}", utils::COMMANDS_HELP),
                 _ => {
                     println!("Not Connected");
                 }
@@ -336,11 +336,14 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
                 "cdup" | "cdu" => client::change_dir_up(&mut client),
                 "dele" | "del" => client::dele(&mut client, &args),
                 "get" | "retr| recv" => client::get(&mut client, &args, ftp_mode, ftp_type),
-                "ls" | "list" => client::list(&mut client, &args, ftp_mode),
+                "ls" | "list" | "dir" => client::list(&mut client, &args, ftp_mode),
+                "lls" | "llist" | "ldir" => client::list_local(&mut client, &args),
+                "lcd" | "lcwd" => client::change_local_dir(&mut client, &args),
                 "mkdir" | "mkd" => client::make_dir(&mut client, &args),
                 "pwd" => client::print_working_dir(&mut client),
                 "put" | "stor" => client::put(&mut client, &args, ftp_mode, ftp_type),
                 "rm" | "rmd" => client::remove_dir(&mut client, &args),
+                "rhelp" => client::r_help(&mut client),
                 "type" => {
                     match ftp_type {
                         FtpType::Binary => println!("Using Binary Mode For Transfers"),
@@ -366,11 +369,11 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
                     process::exit(1);
                 }
                 "help" => println!("{}", utils::COMMANDS_HELP),
-                "open" => {
+                "open" | "ftp" => {
                     println!("Already connected, user close to end connection");
                 }
 
-                "close" => {
+                "close" | "disconnect" => {
                     println!("Closing connection");
                     break;
                 }
@@ -388,7 +391,7 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 
 fn get_commands() -> (String, String) {
 
-    print!("ftp>");
+    print!("ftp> ");
     io::stdout().flush().unwrap();
     let mut buf = String::new();
     io::stdin().read_line(&mut buf).unwrap();

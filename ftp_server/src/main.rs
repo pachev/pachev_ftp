@@ -173,7 +173,6 @@ fn main() {
     let mut map = users.clone(); //needed to clone due to spawning
     let mut serv_settings = settings.clone();
 
-    //
     // # This is the service prot for the FTP server
     // It will be in the background stoping everything and starting everything
     let thread = thread::spawn(move || {
@@ -211,12 +210,15 @@ fn main() {
                                                        "Server is already running \r\n")
                             }
                             false => {
-
                                 start_server(&mut serv_settings, &mut map);
                                 server::write_response(&mut serv_client, "Server has started\r\n");
                             }
 
                         }
+                    }
+                    "server_pause" => {
+                        //TODO:Implement graceful stopping
+                        process::exit(1);
                     }
                     _ => {
                         println!("Bad Command");
@@ -544,7 +546,7 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
             }
             //TODO fix the way that th
             "help" | "?" => {
-                write!(client.get_mut(), "{}", COMMANDS_HELP);
+                write!(client.get_mut(), "{}\r\n", COMMANDS_HELP);
 
             }
             _ => server::write_response(&mut client, &format!("Invalid Command\r\n")),
@@ -740,43 +742,35 @@ fn load_defaults(settings: &mut Settings, conf: &Ini) {
 
 
 const COMMANDS_HELP: &'static str =
-    "
-Pachev Joseph - 5699044
-FTP Server- V0.1.0
-use --help for help on starting client
-Commands: 
-        \
-     user - Sends the username
-        pass - Send the password
-        cwd - Changes working \
-     directory
-        cdup - Changes to parent directory
-        logout - Terminates session
-        \
-     retr - Retrieves a file
-        stor - Stores a file
-        stou - Stores a file uniquely
-        \
-     appe - Appends to a file
-        type - Stes tranfer type to Active or Passive
-        rnrf \
-     - Rename From
-        rnto - Rename To
-        abor - Aborts a transfer
-        dele - \
-     Deletes a file
-        rmd - Removes a directory
-        mkd - Makes a directory
-        pwd \
-     - Prints working directory
-        list - Lists files
-        noop - Does nothing
-        \
-     help - Prints Help Menu
-     size - Prints size of file
-     nlist - Name list of \
-     diretory\r\n
-        OptioOptionn";
+    "214-   \r\n
+214-Pachev Joseph - 5699044 \r\n
+214-FTP Server- V0.1.0
+214-use --help for help on starting client\r\n
+214-Commands: \r\n
+214-        user - Sends the username\r\n
+214-        pass - Send the password\r\n
+214-        cwd - Changes working directory\r\n
+214-        cdup - Changes to parent directory\r\n
+214-        logout - Terminates session
+214-        retr - Retrieves a file\r\n
+214-        stor - Stores a file\r\n
+214-        stou - Stores a file uniquely\r\n
+214-        appe - Appends to a file\r\n
+214-        type - Stes tranfer type to Active or Passive\r\n
+214-        rnrf - Rename From\r\n
+214-        rnto - Rename To\r\n
+214-        abor - Aborts a transfer\r\n
+214-        dele - Deletes a file\r\n
+214-        rmd - Removes a directory\r\n
+214-        mkd - Makes a directory\r\n
+214-        pwd - Prints working directory\r\n
+214-        list - Lists files\r\n
+214-        noop - Does nothing\r\n
+214-        help - Prints Help Menu\r\n
+214-        size - Prints size of file\r\n
+214-        nlist - Name list of direcotry\r\n
+214 \r\n     
+";
 
 struct MyFormat;
 

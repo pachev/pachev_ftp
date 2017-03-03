@@ -131,7 +131,6 @@ pub fn handle_user(mut client: &mut BufReader<TcpStream>,
     }
 }
 
-//TODO: fixing here after implementing ls command
 pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
     println!("user path: {}", user.path);
     println!("cur path: {}", user.cur_dir);

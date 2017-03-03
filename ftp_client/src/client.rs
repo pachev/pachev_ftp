@@ -1,5 +1,8 @@
 use std::fs::File;
+use std::os::unix::fs::PermissionsExt;
 use std::env;
+use std::fs;
+use std::path::Path;
 use std::error::Error;
 use std::io::prelude::*;
 use std::io::{BufReader, Error as IoError};
@@ -43,6 +46,18 @@ pub fn read_message(client: &mut BufReader<TcpStream>) -> String {
 
 }
 
+//reads multi line mesasge
+pub fn read_multi_message(client: &mut BufReader<TcpStream>) -> String {
+    let mut response = "end of transmission".to_string();
+
+    for line in client.lines() {
+        let res = line.unwrap_or("\r\n".to_string());
+        println!("SERVER: {}", res);
+    }
+    return response;
+
+}
+
 pub fn get_code_from_respone(line: &str) -> Result<i32, &'static str> {
 
     //Debug info can go in here, same as verbose
@@ -81,6 +96,64 @@ pub fn change_dir_up(mut stream: &mut BufReader<TcpStream>) {
     response = read_message(&mut stream);
 }
 
+
+pub fn change_local_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
+    let l_cur_dir = env::current_dir().unwrap();
+    println!("cur path: {}", l_cur_dir.display());
+
+    let cur_dir = format!("{}", l_cur_dir.display()).to_string();
+    let arg_dir = format!("{}/{}", l_cur_dir.display(), args).to_string();
+
+    let mut temp_path = Path::new(&cur_dir);
+
+    if args == ".." {
+        temp_path = temp_path.parent().unwrap();
+    } else if args == "." {
+        temp_path = Path::new(&l_cur_dir);
+    } else {
+        temp_path = Path::new(&arg_dir);
+    }
+
+    //Similar to try catch
+    if env::set_current_dir(&temp_path).is_ok() {
+        println!("new cur path: {}", &temp_path.display());
+    } else {
+
+        println!("Error changing local directory");
+    }
+
+
+}
+
+pub fn list_local(mut stream: &mut BufReader<TcpStream>, args: &str) {
+
+    let l_cur_dir = env::current_dir().unwrap();
+
+    let mut cur_dir = format!("{}", l_cur_dir.display());
+
+    if !args.is_empty() {
+        cur_dir = format!("{}/{}", l_cur_dir.display(), args);
+    }
+
+    let path = Path::new(&cur_dir);
+
+    println!("cur_dir {}", path.display());
+    let mut paths = fs::read_dir(path).expect("Could not read directory for listing {}");
+
+    for path in paths {
+        let path = path.unwrap().path();
+        let meta = path.metadata().unwrap();
+        let line = format!("{}\t{}B\t{}",
+                           meta.permissions().mode(),
+                           meta.len(),
+                           path.display());
+
+        println!("{}\r\n", line);
+    }
+
+    println!("List sucessful");
+}
+
 //Remove a directory
 
 pub fn remove_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
@@ -89,6 +162,15 @@ pub fn remove_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
 
     write_command(&mut stream, &cmd);
     response = read_message(&mut stream);
+}
+
+//Rhelp
+pub fn r_help(mut stream: &mut BufReader<TcpStream>) {
+    let mut cmd = "HELP\r\n".to_string();
+    let mut response = String::new();
+
+    write_command(&mut stream, &cmd);
+    read_multi_message(&mut stream);
 }
 
 //Delete  a File
