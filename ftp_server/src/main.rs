@@ -20,6 +20,7 @@ use std::io::prelude::*; //the standard io functions that come with rust
 use std::io::{Write, BufReader};
 use std::io;
 use std::thread::spawn; //For threads
+use std::thread; //For threads
 
 use std::string::String;
 use std::net::{Ipv4Addr, TcpStream, TcpListener, Shutdown, SocketAddrV4};
@@ -167,11 +168,75 @@ fn main() {
 
     let mut users: HashMap<String, user::User> = HashMap::new();
     users = get_user_list(&settings);
+
+    let service_port = format!("{}", settings.service_port);
+    let mut map = users.clone(); //needed to clone due to spawning
+    let mut serv_settings = settings.clone();
+
+    //
+    // # This is the service prot for the FTP server
+    // It will be in the background stoping everything and starting everything
+    let thread = thread::spawn(move || {
+
+        let server = format!("127.0.0.1:{}", service_port);
+        let listener = TcpListener::bind(server.as_str()).expect("Could not bind to main port");
+        let (stream, addr) = listener.accept().expect("Could not connect to service prot");
+        let mut serv_client = BufReader::new(stream);
+        let mut logged_in = false;
+        let mut started = true;
+
+        loop {
+
+            let mut response = String::new();
+            serv_client.read_line(&mut response).expect("Could not read stream message");
+
+            let line = response.trim();
+
+            let (cmd, args) = match line.find(' ') {
+                Some(pos) => (&line[0..pos], &line[pos + 1..]),
+                None => (line, "".as_ref()),
+            };
+
+            if logged_in {
+
+                match cmd.to_lowercase().as_ref() {
+                    "server_stop" => {
+                        //TODO:Implement graceful stopping
+                        process::exit(1);
+                    }
+                    "server_start" => {
+                        match started {
+                            true => {
+                                server::write_response(&mut serv_client,
+                                                       "Server is already running \r\n")
+                            }
+                            false => {
+
+                                start_server(&mut serv_settings, &mut map);
+                                server::write_response(&mut serv_client, "Server has started\r\n");
+                            }
+
+                        }
+                    }
+                    _ => {
+                        println!("Bad Command");
+                    }
+                }
+            } else {
+
+            }
+        }
+
+    });
+
     start_server(&mut settings, &mut users);
+
+    thread.join();
 
 }
 
 fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>) {
+
 
     let log_path = Path::new(&settings.log_file);
     let log_file = OpenOptions::new()
@@ -210,7 +275,6 @@ fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>
         let mut stream = stream.expect("Could not create TCP Stream");
 
 
-        //Eventually this is schanged to logger and then printed based on preferences
         info!("DEBUG: client {} has started and given data port {}",
               stream.peer_addr().unwrap().ip(),
               data_port);
@@ -224,6 +288,7 @@ fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>
         });
         port_count += 1;
     }
+
 }
 
 /// # handle_client

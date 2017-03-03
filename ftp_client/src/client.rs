@@ -11,6 +11,7 @@ pub enum FtpMode {
     Passive,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum FtpType {
     Binary,
     ASCII,
@@ -119,7 +120,10 @@ pub fn quit_server(mut stream: &mut BufReader<TcpStream>) {
 }
 
 //Put a file
-pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode) {
+pub fn put(mut stream: &mut BufReader<TcpStream>,
+           args: &str,
+           ftp_mode: FtpMode,
+           ftp_type: FtpType) {
 
     let mut lpath = String::new();
     let mut rpath = String::new();
@@ -136,7 +140,7 @@ pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode)
     }
 
     let mut response = String::new();
-    set_type(&mut stream, FtpType::Binary);
+    set_type(&mut stream, ftp_type);
     response = read_message(&mut stream);
     response.clear();
 
@@ -161,7 +165,10 @@ pub fn put(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode)
 }
 
 //Get a file
-pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode) {
+pub fn get(mut stream: &mut BufReader<TcpStream>,
+           args: &str,
+           ftp_mode: FtpMode,
+           ftp_type: FtpType) {
     let mut response = String::new();
     let mut lpath = String::new();
     let mut rpath = String::new();
@@ -185,7 +192,7 @@ pub fn get(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode)
         }
     }
 
-    set_type(&mut stream, FtpType::Binary);
+    set_type(&mut stream, ftp_type);
     response = read_message(&mut stream);
     response.clear();
 
@@ -266,8 +273,8 @@ pub fn appe(mut stream: &mut BufReader<TcpStream>, args: &str, ftp_mode: FtpMode
 
             response.clear();
             response = read_message(&mut stream);
-
         }
+
         FtpMode::Active(addr) => {}
     }
 }

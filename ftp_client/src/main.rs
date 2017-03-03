@@ -32,6 +32,7 @@ mod utils;
 
 
 use client::FtpMode;
+use client::FtpType;
 
 
 //This section here defines the arguements that the ftp_client will
@@ -305,6 +306,7 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool
 fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 
     let mut actv_socket_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27598);
+    let mut ftp_type = FtpType::Binary;
 
     let mut ftp_mode = match arguements.passive {
         true => {
@@ -324,17 +326,28 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
         if logged_in {
             match cmd.to_lowercase().as_ref() {
                 "appe" | "append" => client::appe(&mut client, &args, ftp_mode),
-                "cd" | "cwd" => client::change_dir(&mut client, &args),
+                "ascii" => ftp_type = FtpType::ASCII,
+                "binary" | "image" => ftp_type = FtpType::Binary,
+                "close | disconnect" => {
+                    println!("Closing connection");
+                    break;
+                }
+                "cd" | "cwd" | "dir" => client::change_dir(&mut client, &args),
                 "cdup" | "cdu" => client::change_dir_up(&mut client),
                 "dele" | "del" => client::dele(&mut client, &args),
-                "get" | "retr" => client::get(&mut client, &args, ftp_mode),
+                "get" | "retr| recv" => client::get(&mut client, &args, ftp_mode, ftp_type),
                 "ls" | "list" => client::list(&mut client, &args, ftp_mode),
                 "mkdir" | "mkd" => client::make_dir(&mut client, &args),
                 "pwd" => client::print_working_dir(&mut client),
-                "put" | "stor" => client::put(&mut client, &args, ftp_mode),
+                "put" | "stor" => client::put(&mut client, &args, ftp_mode, ftp_type),
                 "rm" | "rmd" => client::remove_dir(&mut client, &args),
-                // "append" | "appe" => client::appe(&mut client, &args),
-                "quit" | "exit" => {
+                "type" => {
+                    match ftp_type {
+                        FtpType::Binary => println!("Using Binary Mode For Transfers"),
+                        FtpType::ASCII => println!("Using ASCII Mode for transfers"),
+                    }
+                }
+                "quit" | "exit" | "bye" => {
                     println!("Goodbye");
                     client::quit_server(&mut client);
                     process::exit(1);
