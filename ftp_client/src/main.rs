@@ -177,6 +177,7 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
     loop {
 
 
+        //TODO: put the connection into a function to reduce repetition of code
         if !arguements.hostname.is_empty() {
             let server = format!("{}:{}", arguements.hostname, arguements.ftp_port);
             match TcpStream::connect(server.as_str()) {
@@ -186,8 +187,8 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
                     myclient = stream;
                     let mut stream = BufReader::new(myclient);
                     println!("Success Connecting to server");
-                    let response = client::read_message(&mut stream);
-                    cmd_loop(&mut stream, &arguements);
+                    let response = client::read_message(&mut stream, arguements.verbose);
+                    cmd_loop(&mut stream, &mut arguements);
                 }
                 Err(_) => {
                     arguements.hostname = "".to_string();
@@ -214,8 +215,8 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
                             myclient = stream;
                             let mut stream = BufReader::new(myclient);
                             println!("Success Connecting to server");
-                            let response = client::read_message(&mut stream);
-                            cmd_loop(&mut stream, &arguements);
+                            let response = client::read_message(&mut stream, arguements.verbose);
+                            cmd_loop(&mut stream, &mut arguements);
                         }
                         Err(_) => {
                             println!("Could not connect to host");
@@ -229,6 +230,12 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
                 }
                 "close" | "disconnect" => {
                     println!("Not Connected");
+                }
+                "debug" => {
+                    toggle_debug(&mut arguements);
+                }
+                "verbose" => {
+                    toggle_verbose(&mut arguements);
                 }
                 "help" | "?" => println!("{}", utils::COMMANDS_HELP),
                 _ => {
@@ -276,14 +283,14 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool
     let mut cmd = format!("USER {}\r\n", user);
     let mut response = String::new();
 
-    client::write_command(&mut client, &cmd);
-    response = client::read_message(&mut client);
+    client::write_command(&mut client, &cmd, arguements.debug);
+    response = client::read_message(&mut client, arguements.verbose);
 
     response.clear();
     cmd = format!("PASS {}\r\n", password);
 
-    client::write_command(&mut client, &cmd);
-    response = client::read_message(&mut client);
+    client::write_command(&mut client, &cmd, arguements.debug);
+    response = client::read_message(&mut client, arguements.verbose);
 
     match client::get_code_from_respone(&response) {
         Ok(230) => {
@@ -303,7 +310,7 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool
 
 
 
-fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
+fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguements) {
 
     let mut actv_socket_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27598);
     let mut ftp_type = FtpType::Binary;
@@ -323,36 +330,48 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
 
     loop {
         let (cmd, args) = get_commands();
+        let (debug, verbose) = (arguements.debug, arguements.verbose);
         if logged_in {
             match cmd.to_lowercase().as_ref() {
-                "appe" | "append" => client::appe(&mut client, &args, ftp_mode),
+                "appe" | "append" => client::appe(&mut client, &args, ftp_mode, debug, verbose),
                 "ascii" => ftp_type = FtpType::ASCII,
                 "binary" | "image" => ftp_type = FtpType::Binary,
-                "close | disconnect" => {
+                "close" | "disconnect" => {
                     println!("Closing connection");
                     break;
                 }
-                "cd" | "cwd" | "dir" => client::change_dir(&mut client, &args),
-                "cdup" | "cdu" => client::change_dir_up(&mut client),
-                "dele" | "del" => client::dele(&mut client, &args),
-                "get" | "retr| recv" => client::get(&mut client, &args, ftp_mode, ftp_type),
-                "ls" | "list" | "dir" => client::list(&mut client, &args, ftp_mode),
+                "cd" | "cwd" | "dir" => client::change_dir(&mut client, &args, debug, verbose),
+                "cdup" | "cdu" => client::change_dir_up(&mut client, debug, verbose),
+                "dele" | "del" => client::dele(&mut client, &args, debug, verbose),
+                "get" | "retr| recv" => {
+                    client::get(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                }
+                "ls" | "list" | "dir" => client::list(&mut client, &args, ftp_mode, debug, verbose),
                 "lls" | "llist" | "ldir" => client::list_local(&mut client, &args),
+                "lpwd" => client::print_locoal_dir(&mut client),
                 "lcd" | "lcwd" => client::change_local_dir(&mut client, &args),
-                "mkdir" | "mkd" => client::make_dir(&mut client, &args),
-                "pwd" => client::print_working_dir(&mut client),
-                "put" | "stor" => client::put(&mut client, &args, ftp_mode, ftp_type),
-                "rm" | "rmd" => client::remove_dir(&mut client, &args),
-                "rhelp" => client::r_help(&mut client),
+                "mkdir" | "mkd" => client::make_dir(&mut client, &args, debug, verbose),
+                "pwd" => client::print_working_dir(&mut client, debug, verbose),
+                "put" | "stor" => {
+                    client::put(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                }
+                "rm" | "rmd" => client::remove_dir(&mut client, &args, debug, verbose),
+                "rhelp" => client::r_help(&mut client, debug, verbose),
                 "type" => {
                     match ftp_type {
                         FtpType::Binary => println!("Using Binary Mode For Transfers"),
                         FtpType::ASCII => println!("Using ASCII Mode for transfers"),
                     }
                 }
+                "debug" => {
+                    toggle_debug(&mut arguements);
+                }
+                "verbose" => {
+                    toggle_verbose(&mut arguements);
+                }
                 "quit" | "exit" | "bye" => {
                     println!("Goodbye");
-                    client::quit_server(&mut client);
+                    client::quit_server(&mut client, debug, verbose);
                     process::exit(1);
                 }
                 "help" => println!("{}", utils::COMMANDS_HELP),
@@ -365,12 +384,18 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) {
             match cmd.to_lowercase().as_ref() { 
                 "quit" | "exit" => {
                     println!("Goodbye");
-                    client::quit_server(&mut client);
+                    client::quit_server(&mut client, debug, verbose);
                     process::exit(1);
                 }
                 "help" => println!("{}", utils::COMMANDS_HELP),
                 "open" | "ftp" => {
                     println!("Already connected, user close to end connection");
+                }
+                "debug" => {
+                    toggle_debug(&mut arguements);
+                }
+                "verbose" => {
+                    toggle_verbose(&mut arguements);
                 }
 
                 "close" | "disconnect" => {
@@ -418,6 +443,7 @@ fn load_defaults(settings: &mut Arguements, conf: &Ini) {
                                            .unwrap_or(&"27500".to_string()),
                                        defaults.get("data_port_max")
                                            .unwrap_or(&"2799".to_string()));
+
     settings.log_file = format!("{}",
                                 defaults.get("default_log_file").unwrap_or(&settings.log_file));
     settings.ftp_mode = format!("{}",
@@ -428,6 +454,41 @@ fn load_defaults(settings: &mut Arguements, conf: &Ini) {
         }
         _ => {
             settings.passive = false;
+        }
+    }
+    let debug = format!("{}",
+                        defaults.get("default_debug_mode").unwrap_or(&"true".to_string()));
+
+    let verbose = format!("{}",
+                          defaults.get("default_verbose_mode").unwrap_or(&"true".to_string()));
+
+    settings.debug = debug.parse::<bool>().unwrap_or(true);
+    settings.debug = verbose.parse::<bool>().unwrap_or(false);
+
+}
+
+fn toggle_debug(settings: &mut Arguements) {
+    match settings.debug {
+        true => {
+            settings.debug = false;
+            println!("Debugging off (Debug=0)");
+        }
+        false => {
+            settings.debug = true;
+            println!("Debugging on (Debug=1)");
+        }
+    }
+}
+
+fn toggle_verbose(settings: &mut Arguements) {
+    match settings.verbose {
+        true => {
+            settings.verbose = false;
+            println!("Verbose off (Debug=0)");
+        }
+        false => {
+            settings.verbose = true;
+            println!("Verbose on (Debug=1)");
         }
     }
 }
