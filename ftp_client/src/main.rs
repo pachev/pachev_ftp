@@ -1,3 +1,4 @@
+//! FTP Client impolemented in rust
 extern crate argparse; //argument parsing such as -h -d etc..
 extern crate rpassword; //hidden passwords
 extern crate ini;
@@ -360,6 +361,9 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "lcd" | "lcwd" => client::change_local_dir(&mut client, &args),
                 "mkdir" | "mkd" => client::make_dir(&mut client, &args, debug, verbose),
                 "mdele" | "mdel" => client::mdele(&mut client, &args, debug, verbose),
+                "mlist" | "mls" | "mdir" => {
+                    client::mlist(&mut client, &args, ftp_mode, debug, verbose)
+                }
                 "pwd" => client::print_working_dir(&mut client, debug, verbose),
                 "put" | "stor" => {
                     client::put(&mut client, &args, ftp_mode, ftp_type, debug, verbose)

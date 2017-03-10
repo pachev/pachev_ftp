@@ -1,9 +1,12 @@
 use std::fs::File;
 use std::os::unix::fs::PermissionsExt;
 use std::env;
+use std::thread; //For threads
 use std::fs;
 use std::path::Path;
 use std::error::Error;
+use std::io;
+use std::io::Write;
 use std::io::prelude::*;
 use std::io::{BufReader, Error as IoError};
 use std::net::{TcpStream, TcpListener, Ipv4Addr, Shutdown, SocketAddrV4};
@@ -348,6 +351,7 @@ pub fn list(mut stream: &mut BufReader<TcpStream>,
 
 }
 
+//mdele for deleting multiple files on the server
 pub fn mdele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let arg_list: Vec<&str> = args.split(' ').collect();
     for file in arg_list {
@@ -356,6 +360,66 @@ pub fn mdele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, ver
         write_command(&mut stream, &cmd, debug);
         response = read_message(&mut stream, verbose);
         response.clear();
+    }
+
+
+}
+
+//mlist Command for listing multiple directories
+pub fn mlist(mut stream: &mut BufReader<TcpStream>,
+             args: &str,
+             ftp_mode: FtpMode,
+             debug: bool,
+             verbose: bool) {
+
+    let mut arg_list: Vec<&str> = args.split(' ').collect();
+    let save_to = arg_list.pop().expect("nothing in the vector");
+    println!("Would you like to save to {}?", save_to);
+    io::stdout().flush().unwrap();
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf).unwrap();
+    let ans = buf.trim();
+
+    match ans.to_lowercase().as_ref() {
+        "y" => {
+            let mut local_file = File::create(&save_to).expect("Could not save to local file");
+            for file in arg_list {
+                let mut response = String::new();
+                set_type(&mut stream, FtpType::ASCII, debug);
+
+                response = read_message(&mut stream, verbose);
+                response.clear();
+
+                match ftp_mode {
+                    FtpMode::Passive => {
+
+                        write_command(&mut stream, "PASV \r\n", debug);
+                        response = read_message(&mut stream, verbose);
+                        let addr = get_pasv_address(&response);
+                        write_command(&mut stream, &format!("LIST {}\r\n", file), debug);
+                        println!("args: {}", file);
+
+                        let mut stream2 = TcpStream::connect(addr)
+                            .expect("could not read connect address");
+
+                        response = read_message(&mut stream, verbose);
+                        let mut buf: Vec<u8> = Vec::new();
+                        stream2.read_to_end(&mut buf).expect("Could not read second stream");
+                        let text = (String::from_utf8(buf))
+                            .expect("Could not read text from streamm");
+                        stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
+                        write!(local_file, "{}", text);
+                        response.clear();
+                        response = read_message(&mut stream, verbose);
+
+                    }
+                    FtpMode::Active(addr) => {}
+                }
+            }
+        }
+        _ => {
+            return;
+        }
     }
 
 
@@ -519,8 +583,8 @@ fn list_file(addr: &SocketAddrV4,
     let response = read_message(&mut stream, verbose);
 
     let mut buf: Vec<u8> = Vec::new();
-    stream2.read_to_end(&mut buf).expect("Could not read");
-    let text = (String::from_utf8(buf)).expect("Could not read");
+    stream2.read_to_end(&mut buf).expect("Could not read second stream");
+    let text = (String::from_utf8(buf)).expect("Could not read text from streamm");
     stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
     println!("{}", text);
 }
