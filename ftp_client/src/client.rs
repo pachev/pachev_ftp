@@ -53,7 +53,7 @@ pub fn read_message(client: &mut BufReader<TcpStream>, verbose: bool) -> String 
 
 }
 
-//reads multi line mesasge
+//reads multi line message
 pub fn read_multi_message(client: &mut BufReader<TcpStream>) -> String {
     let mut response = "end of transmission".to_string();
     let mut res = String::new();
@@ -345,6 +345,19 @@ pub fn list(mut stream: &mut BufReader<TcpStream>,
         }
         FtpMode::Active(addr) => {}
     }
+
+}
+
+pub fn mdele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
+    let arg_list: Vec<&str> = args.split(' ').collect();
+    for file in arg_list {
+        let mut cmd = format!("DELE {}\r\n", file);
+        let mut response = String::new();
+        write_command(&mut stream, &cmd, debug);
+        response = read_message(&mut stream, verbose);
+        response.clear();
+    }
+
 
 }
 

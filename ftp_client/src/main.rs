@@ -26,6 +26,7 @@ use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue, StoreFalse}
 use rpassword::read_password;
 use rpassword::prompt_password_stdout;
 
+
 //helper files for client functions
 mod client;
 mod utils;
@@ -158,6 +159,7 @@ fn main() {
     arguements.passive = passive;
 
     //Uses either the parsed info or defaults to determiner server
+
 
     start_ftp_client(&mut arguements);
 }
@@ -325,7 +327,7 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
             FtpMode::Active(actv_socket_addr)
         }
     };
-    let logged_in = login(&mut client, &arguements);
+    let mut logged_in = login(&mut client, &arguements);
     let auth_mesg = "You need to be logged in";
 
     loop {
@@ -334,8 +336,14 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
         if logged_in {
             match cmd.to_lowercase().as_ref() {
                 "appe" | "append" => client::appe(&mut client, &args, ftp_mode, debug, verbose),
-                "ascii" => ftp_type = FtpType::ASCII,
-                "binary" | "image" => ftp_type = FtpType::Binary,
+                "ascii" => {
+                    ftp_type = FtpType::ASCII;
+                    println!("Type set to A- Ascii");
+                }
+                "binary" | "image" => {
+                    ftp_type = FtpType::Binary;
+                    println!("Type set to A- Ascii");
+                }
                 "close" | "disconnect" => {
                     println!("Closing connection");
                     break;
@@ -351,6 +359,7 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "lpwd" => client::print_locoal_dir(&mut client),
                 "lcd" | "lcwd" => client::change_local_dir(&mut client, &args),
                 "mkdir" | "mkd" => client::make_dir(&mut client, &args, debug, verbose),
+                "mdele" | "mdel" => client::mdele(&mut client, &args, debug, verbose),
                 "pwd" => client::print_working_dir(&mut client, debug, verbose),
                 "put" | "stor" => {
                     client::put(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
@@ -388,8 +397,9 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                     process::exit(1);
                 }
                 "help" => println!("{}", utils::COMMANDS_HELP),
+                "user" => logged_in = login(&mut client, &arguements),
                 "open" | "ftp" => {
-                    println!("Already connected, user close to end connection");
+                    println!("Already connected, use close to end connection");
                 }
                 "debug" => {
                     toggle_debug(&mut arguements);
@@ -484,11 +494,11 @@ fn toggle_verbose(settings: &mut Arguements) {
     match settings.verbose {
         true => {
             settings.verbose = false;
-            println!("Verbose off (Debug=0)");
+            println!("Verbose off (Verbose=0)");
         }
         false => {
             settings.verbose = true;
-            println!("Verbose on (Debug=1)");
+            println!("Verbose on (Verbose=1)");
         }
     }
 }
