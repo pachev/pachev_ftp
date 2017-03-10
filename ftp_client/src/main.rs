@@ -364,6 +364,12 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "mlist" | "mls" | "mdir" => {
                     client::mlist(&mut client, &args, ftp_mode, debug, verbose)
                 }
+                "mget" | "mretr| mrecv" => {
+                    client::mget(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                }
+                "mput" | "mstor" => {
+                    client::mput(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                }
                 "pwd" => client::print_working_dir(&mut client, debug, verbose),
                 "put" | "stor" => {
                     client::put(&mut client, &args, ftp_mode, ftp_type, debug, verbose)

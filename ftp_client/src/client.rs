@@ -11,6 +11,10 @@ use std::io::prelude::*;
 use std::io::{BufReader, Error as IoError};
 use std::net::{TcpStream, TcpListener, Ipv4Addr, Shutdown, SocketAddrV4};
 
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::channel;
+
+
 #[derive(Debug, Copy, Clone)]
 pub enum FtpMode {
     Active(SocketAddrV4),
@@ -307,7 +311,7 @@ pub fn get(mut stream: &mut BufReader<TcpStream>,
             write_command(&mut stream, "PASV\r\n", debug);
             response = read_message(&mut stream, verbose);
             let addr = get_pasv_address(&response);
-            write_command(&mut stream, "RETR {}\r\n", debug);
+            write_command(&mut stream, &format!("RETR {}\r\n", rpath), debug);
             get_file(&addr, &rpath, &mut stream, verbose);
             response.clear();
             response = read_message(&mut stream, verbose);
@@ -361,6 +365,120 @@ pub fn mdele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, ver
         response = read_message(&mut stream, verbose);
         response.clear();
     }
+
+
+}
+
+//mget for retrieving multiple files at once
+pub fn mget(mut stream: &mut BufReader<TcpStream>,
+            args: &str,
+            ftp_mode: FtpMode,
+            ftp_type: FtpType,
+            debug: bool,
+            verbose: bool) {
+    let mut threads = vec![];
+
+    let arg_list: Vec<&str> = args.split(' ').collect();
+    let mut response = String::new();
+
+    set_type(&mut stream, ftp_type, debug);
+
+    //Creating a clone of the stream that will be protected in a mutex
+    let mut temp_stream = stream.get_mut().try_clone().expect("Could not clone stream");
+    let mut shared_stream = Arc::new(Mutex::new(BufReader::new(temp_stream)));
+
+    response = read_message(&mut stream, verbose);
+    response.clear();
+
+    for file in arg_list {
+        let arg = format!("{}", file);
+        let mut_stream = shared_stream.clone();
+
+        let mut response = String::new();
+        let t_debug = debug.clone();
+        let t_verbose = verbose.clone();
+
+        let thread = thread::spawn(move || match ftp_mode {
+            FtpMode::Passive => {
+
+                let mut buf_stream = mut_stream.lock().expect("could not lock main streamm");
+                write_command(&mut buf_stream, "PASV\r\n", t_debug);
+                response = read_message(&mut buf_stream, t_verbose);
+                let addr = get_pasv_address(&response);
+                write_command(&mut buf_stream, &format!("RETR {}\r\n", arg), t_debug);
+                get_file(&addr, &arg, &mut buf_stream, t_verbose);
+                response.clear();
+                response = read_message(&mut buf_stream, t_verbose);
+            }
+            FtpMode::Active(addr) => {}
+        });
+
+        threads.push(thread);
+    }
+
+    for t in threads {
+        let _ = t.join();
+    }
+
+
+
+}
+
+//mput for storing multiple files
+pub fn mput(mut stream: &mut BufReader<TcpStream>,
+            args: &str,
+            ftp_mode: FtpMode,
+            ftp_type: FtpType,
+            debug: bool,
+            verbose: bool) {
+    let mut threads = vec![];
+
+    let arg_list: Vec<&str> = args.split(' ').collect();
+    let mut response = String::new();
+
+    set_type(&mut stream, ftp_type, debug);
+
+    //Creating a clone of the stream that will be protected in a mutex
+    let mut temp_stream = stream.get_mut().try_clone().expect("Could not clone stream");
+
+    //Creating a new BufReader of the main stream protected inside a mutex
+    let mut shared_stream = Arc::new(Mutex::new(BufReader::new(temp_stream)));
+
+    response = read_message(&mut stream, verbose);
+    response.clear();
+
+    for file in arg_list {
+        let arg = format!("{}", file);
+        //cloning the mutex inside of each thread
+        let mut_stream = shared_stream.clone();
+
+        let mut response = String::new();
+        let t_debug = debug.clone();
+        let t_verbose = verbose.clone();
+
+        let thread = thread::spawn(move || match ftp_mode {
+            FtpMode::Passive => {
+
+                let mut buf_stream = mut_stream.lock().expect("could not lock main streamm");
+                write_command(&mut buf_stream, "PASV\r\n", t_debug);
+                response = read_message(&mut buf_stream, t_verbose);
+                let addr = get_pasv_address(&response);
+                write_command(&mut buf_stream, &format!("STOR {}\r\n", arg), t_debug);
+                stor_file(&addr, &arg, &mut buf_stream, t_debug);
+                response.clear();
+                response = read_message(&mut buf_stream, t_verbose);
+            }
+            FtpMode::Active(addr) => {}
+        });
+
+        threads.push(thread);
+    }
+
+    //Joining threads before end of function
+    for t in threads {
+        let _ = t.join();
+    }
+
 
 
 }
@@ -561,7 +679,7 @@ fn get_file(addr: &SocketAddrV4,
     let mut stream2 = TcpStream::connect(addr).expect("could not read connect address");
     let response = read_message(&mut stream, verbose);
 
-    let mut file = match File::open(rpath) {
+    let mut file = match File::create(rpath) {
         Ok(file) => file,
         Err(_) => {
             println!("Error opening file on local");
