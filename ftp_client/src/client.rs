@@ -33,9 +33,6 @@ pub enum FtpType {
 
 
 
-//TODO; Reformat code to resue functions  to use for active mode and passive mode
-//Meaning add an extra function that does transfering based on modes
-//TODO: figure out how to just have a class that I call functions from in rust
 //Writes commands to the server
 //
 pub fn write_command(client: &mut BufReader<TcpStream>, cmd: &str, debug: bool) {
@@ -43,6 +40,7 @@ pub fn write_command(client: &mut BufReader<TcpStream>, cmd: &str, debug: bool) 
         .write(cmd.to_string().as_bytes())
         .expect("Something went wrong writing command");
     client.get_mut().flush().expect("Something went wrong flushing stream");
+    info!("----> {}", cmd);
     if debug {
 
         println!("----> {}", cmd);
@@ -54,6 +52,7 @@ pub fn write_command(client: &mut BufReader<TcpStream>, cmd: &str, debug: bool) 
 pub fn read_message(client: &mut BufReader<TcpStream>, verbose: bool) -> String {
     let mut response = String::new();
     client.read_line(&mut response).expect("Could not read message");
+    info!("SERVER: {}", response);
 
     if verbose {
         println!("SERVER: {}", response);
@@ -83,23 +82,23 @@ pub fn read_multi_message(client: &mut BufReader<TcpStream>, verbose: bool) -> S
 
 }
 
+//This is used for verifying message received fromt the sever
 pub fn get_code_from_respone(line: &str) -> Result<i32, &'static str> {
 
-    //Debug info can go in here, same as verbose
-    // println!("response is: {}", line);
-    //
     let number = match line[0..3].parse::<i32>() {
         Ok(code) => code,
         Err(_) => -1,
     };
 
     println!("code is: {}", number);
+    info!("code from server is: {}", number);
     Ok(number)
 }
 
 pub fn make_dir(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let mut cmd = format!("MKD {}\r\n", args);
     let mut response = String::new();
+    info!("Sending MKD command");
 
     write_command(&mut stream, &cmd, debug);
     response = read_message(&mut stream, verbose);
@@ -108,6 +107,7 @@ pub fn make_dir(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, 
 pub fn change_dir(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let mut cmd = format!("CWD {}\r\n", args);
     let mut response = String::new();
+    info!("Sending CWD command");
 
     write_command(&mut stream, &cmd, debug);
     response = read_message(&mut stream, verbose);
@@ -117,6 +117,7 @@ pub fn change_dir_up(mut stream: &mut BufReader<TcpStream>, debug: bool, verbose
     let mut cmd = "CDUP\r\n".to_string();
     let mut response = String::new();
 
+    info!("Sending CUP command");
     write_command(&mut stream, &cmd, debug);
     response = read_message(&mut stream, verbose);
 }
@@ -142,9 +143,11 @@ pub fn change_local_dir(mut stream: &mut BufReader<TcpStream>, args: &str) {
     //Similar to try catch
     if env::set_current_dir(&temp_path).is_ok() {
         println!("new cur path: {}", &temp_path.display());
+        info!("new cur path: {}", &temp_path.display());
     } else {
 
         println!("Error changing local directory");
+        info!("Error changing local directory");
     }
 
 
@@ -164,6 +167,7 @@ pub fn list_local(mut stream: &mut BufReader<TcpStream>, args: &str) {
     let path = Path::new(&cur_dir);
 
     println!("cur_dir {}", path.display());
+    info!("cur_dir {}", path.display());
     let mut paths = fs::read_dir(path).expect("Could not read directory for listing {}");
 
     for path in paths {
@@ -178,6 +182,7 @@ pub fn list_local(mut stream: &mut BufReader<TcpStream>, args: &str) {
     }
 
     println!("List sucessful");
+    info!("List sucessful");
 }
 
 //Print local
@@ -186,6 +191,7 @@ pub fn print_locoal_dir(mut stream: &mut BufReader<TcpStream>) {
     let l_cur_dir = env::current_dir().expect("Something went wrong obtaining local directory");
 
     println!("local: {}", l_cur_dir.display());
+    info!("printing local directory : {}", l_cur_dir.display());
 }
 
 //Remove a directory
@@ -193,6 +199,7 @@ pub fn print_locoal_dir(mut stream: &mut BufReader<TcpStream>) {
 pub fn remove_dir(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let mut cmd = format!("RMD {}\r\n", args);
     let mut response = String::new();
+    info!("SENDING CMD command");
 
     write_command(&mut stream, &cmd, debug);
     response = read_message(&mut stream, verbose);
@@ -203,6 +210,7 @@ pub fn r_help(mut stream: &mut BufReader<TcpStream>, debug: bool, verbose: bool)
     let mut cmd = "HELP\r\n".to_string();
     let mut response = String::new();
 
+    info!("SENDING help command");
     write_command(&mut stream, &cmd, debug);
     read_multi_message(&mut stream, verbose);
 }
@@ -210,6 +218,7 @@ pub fn r_help(mut stream: &mut BufReader<TcpStream>, debug: bool, verbose: bool)
 //Delete  a File
 
 pub fn dele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
+    info!("SENDING DELE command");
     let mut cmd = format!("DELE {}\r\n", args);
     let mut response = String::new();
 
@@ -222,6 +231,7 @@ pub fn dele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verb
 pub fn print_working_dir(mut stream: &mut BufReader<TcpStream>, debug: bool, verbose: bool) {
     let mut cmd = "PWD\r\n".to_string();
     let mut response = String::new();
+    info!("SENDING PWD command");
 
     write_command(&mut stream, &cmd, debug);
     response = read_message(&mut stream, verbose);
@@ -231,6 +241,7 @@ pub fn print_working_dir(mut stream: &mut BufReader<TcpStream>, debug: bool, ver
 pub fn quit_server(mut stream: &mut BufReader<TcpStream>, debug: bool, verbose: bool) {
     let mut cmd = "QUIT\r\n".to_string();
     let mut response = String::new();
+    info!("EXITING CLIENT");
     write_command(&mut stream, &cmd, debug);
     response = read_message(&mut stream, verbose);
 }
@@ -266,6 +277,9 @@ pub fn put(mut stream: &mut BufReader<TcpStream>,
     match ftp_mode {
         FtpMode::Passive => {
 
+            info!("Seding {} in passive mode to be stored as {} ",
+                  lpath,
+                  rpath);
             write_command(&mut stream, "PASV \r\n", debug);
             response = read_message(&mut stream, verbose);
             let addr = get_pasv_address(&response);
@@ -281,7 +295,10 @@ pub fn put(mut stream: &mut BufReader<TcpStream>,
             response = read_message(&mut stream, verbose);
 
         }
-        FtpMode::Active(addr) => {}
+        FtpMode::Active(addr) => {
+
+            info!("Seding {} in active mode to be stored as {} ", lpath, rpath);
+        }
     }
 
 
@@ -324,6 +341,9 @@ pub fn get(mut stream: &mut BufReader<TcpStream>,
 
     match ftp_mode {
         FtpMode::Passive => {
+            info!("Retrieving {} in passive mode to be stored as {} ",
+                  rpath,
+                  lpath);
             write_command(&mut stream, "PASV\r\n", debug);
             response = read_message(&mut stream, verbose);
 
@@ -333,7 +353,12 @@ pub fn get(mut stream: &mut BufReader<TcpStream>,
             response.clear();
             response = read_message(&mut stream, verbose);
         }
-        FtpMode::Active(addr) => {}
+        FtpMode::Active(addr) => {
+
+            info!("Retrieving {} in active mode to be stored as {} ",
+                  rpath,
+                  lpath);
+        }
     }
 
 
@@ -355,6 +380,7 @@ pub fn list(mut stream: &mut BufReader<TcpStream>,
 
     match ftp_mode {
         FtpMode::Passive => {
+            info!("Retrieving LIST command in passive mode");
 
             write_command(&mut stream, "PASV \r\n", debug);
             response = read_message(&mut stream, verbose);
@@ -367,7 +393,10 @@ pub fn list(mut stream: &mut BufReader<TcpStream>,
             response = read_message(&mut stream, verbose);
 
         }
-        FtpMode::Active(addr) => {}
+        FtpMode::Active(addr) => {
+
+            info!("Retrieving LIST command in passive mode");
+        }
     }
 
 }
@@ -375,6 +404,8 @@ pub fn list(mut stream: &mut BufReader<TcpStream>,
 //mdele for deleting multiple files on the server
 pub fn mdele(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let arg_list: Vec<&str> = args.split(' ').collect();
+
+    info!("Deleting multiple files {}", args);
     for file in arg_list {
         let mut cmd = format!("DELE {}\r\n", file);
         let mut response = String::new();
@@ -406,6 +437,7 @@ pub fn mget(mut stream: &mut BufReader<TcpStream>,
 
     response = read_message(&mut stream, verbose);
     response.clear();
+    info!("retrieving multiple files {}", args);
 
     for file in arg_list {
         let arg = format!("{}", file);
@@ -434,7 +466,8 @@ pub fn mget(mut stream: &mut BufReader<TcpStream>,
     }
 
     for t in threads {
-        let _ = t.join();
+        info!("Joining all threads");
+        let _ = t.join().unwrap();
     }
 
 
@@ -453,6 +486,7 @@ pub fn mput(mut stream: &mut BufReader<TcpStream>,
     let arg_list: Vec<&str> = args.split(' ').collect();
     let mut response = String::new();
 
+    info!("storing multiple files {}", args);
     set_type(&mut stream, ftp_type, debug);
 
     //Creating a clone of the stream that will be protected in a mutex
@@ -493,7 +527,8 @@ pub fn mput(mut stream: &mut BufReader<TcpStream>,
 
     //Joining threads before end of function
     for t in threads {
-        let _ = t.join();
+        info!("Joining all threads");
+        let _ = t.join().unwrap();
     }
 
 
@@ -518,6 +553,8 @@ pub fn mlist(mut stream: &mut BufReader<TcpStream>,
     match ans.to_lowercase().as_ref() {
         "y" => {
             let mut local_file = File::create(&save_to).expect("Could not save to local file");
+
+            info!("Saving MLIST of {} to {}", args, save_to);
             for file in arg_list {
                 let mut response = String::new();
                 set_type(&mut stream, FtpType::ASCII, debug);
@@ -562,6 +599,7 @@ pub fn mlist(mut stream: &mut BufReader<TcpStream>,
 
 pub fn rstatus(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let mut cmd = format!("STAT {}\r\n", args);
+    info!("Sending STAT command to server");
     let mut response = String::new();
 
     write_command(&mut stream, &cmd, debug);
@@ -597,6 +635,7 @@ pub fn appe(mut stream: &mut BufReader<TcpStream>,
     match ftp_mode {
         FtpMode::Passive => {
 
+            info!("Appending to file {} in passive mode", args);
             write_command(&mut stream, "PASV \r\n", debug);
             response = read_message(&mut stream, verbose);
             let addr = get_pasv_address(&response);
@@ -607,7 +646,10 @@ pub fn appe(mut stream: &mut BufReader<TcpStream>,
             response = read_message(&mut stream, verbose);
         }
 
-        FtpMode::Active(addr) => {}
+        FtpMode::Active(addr) => {
+
+            info!("Appending to file {} in passive mode", args);
+        }
     }
 }
 
@@ -652,8 +694,10 @@ pub fn get_u(mut stream: &mut BufReader<TcpStream>,
 
             if local.exists() {
                 println!("Local file exits, replacing with {}", s);
+                info!("Local file exits, replacing with {}", s);
                 get_file(&addr, &s, &mut stream, verbose);
             } else {
+                info!("Storing file {}", rpath);
                 get_file(&addr, &lpath, &mut stream, verbose);
             }
             response.clear();
@@ -669,6 +713,7 @@ pub fn get_u(mut stream: &mut BufReader<TcpStream>,
 
 pub fn size(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
     let mut cmd = format!("SIZE {}\r\n", args);
+    info!("Sending SIZE command to server");
     let mut response = String::new();
     set_type(&mut stream, FtpType::Binary, debug);
     response = read_message(&mut stream, verbose);

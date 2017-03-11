@@ -7,14 +7,22 @@ extern crate rand;
 //Reading from config files
 use ini::Ini;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_stream;
+extern crate slog_stdlog;
+#[macro_use]
+extern crate log;
 
 use std::io::prelude::*; //the standard io functions that come with rust
 use std::process;
+use std::path::Path;
 use std::io::BufReader; //the standard io functions that come with rust
 use std::net::{SocketAddrV4, Ipv4Addr, TcpStream};
 use std::thread::spawn; //For threads
 use std::io;
 
+use std::fs::OpenOptions;
 use std::string::String;
 use std::str::FromStr;
 use std::net::ToSocketAddrs;
@@ -28,6 +36,7 @@ use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue, StoreFalse}
 use rpassword::read_password;
 use rpassword::prompt_password_stdout;
 
+use slog::DrainExt;
 
 //helper files for client functions
 mod client;
@@ -77,7 +86,7 @@ impl Arguements {
             run_default: false,
             l_all: "".to_string(),
             l_only: "logs/ftpclient.log".to_string(),
-            log_file: "".to_string(),
+            log_file: "logs/ftpclient.log".to_string(),
         }
     }
 }
@@ -168,6 +177,19 @@ fn main() {
 
 fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
 
+    let temp_path = format!("{}", arguements.log_file);
+    let log_path = Path::new(&temp_path);
+    let log_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(log_path)
+        .unwrap();
+    let drain = slog_stream::stream(log_file, MyFormat).fuse();
+    let logger = slog::Logger::root(drain, o!());
+    slog_stdlog::set_logger(logger).unwrap();
+
+    info!("Global File Logger for FTP CLIENT");
     //this will serve as a holder
     let mut myclient: TcpStream;
 
@@ -186,6 +208,8 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
             let server = format!("{}:{}", arguements.hostname, arguements.ftp_port);
             match TcpStream::connect(server.as_str()) {
                 Ok(stream) => {
+                    info!("Success Connecting to server {}",
+                          stream.peer_addr().unwrap().ip());
                     arguements.hostname = "".to_string();
                     arguements.ftp_port = "".to_string();
                     myclient = stream;
@@ -198,6 +222,7 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
                     arguements.hostname = "".to_string();
                     arguements.ftp_port = "".to_string();
                     println!("Could not connect to host");
+                    debug!("Could not connect to host {}", arguements.hostname);
                 }
             }
         } else {
@@ -224,6 +249,7 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
                         }
                         Err(_) => {
                             println!("Could not connect to host");
+                            info!("Could not connect to host");
                         }
 
                     }
@@ -309,13 +335,18 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool
     match client::get_code_from_respone(&response) {
         Ok(230) => {
             println!("Success Logging In");
+            info!("Success Logging In {}", user);
             logged_in = true;
         }
         Ok(_) => {
             println!("Login Failed");
+            info!("Error Logging In {}", user);
             logged_in = false;
         }
-        Err(e) => println!("Something went wrong"),
+        Err(e) => {
+            println!("Something went wrong");
+            debug!("Something went wrong logging user");
+        } 
     }
 
     logged_in
@@ -331,11 +362,11 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
 
     let mut ftp_mode = match arguements.passive {
         true => {
-            // println!("Running in passive mode");
+            info!("Running in passive mode");
             FtpMode::Passive
         }
         false => {
-            // println!("Running in active mode");
+            info!("Running in active mode");
             FtpMode::Active(actv_socket_addr)
         }
     };
@@ -353,13 +384,16 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "ascii" => {
                     ftp_type = FtpType::ASCII;
                     println!("Type set to A- Ascii");
+                    info!("Type set to A- Ascii");
                 }
                 "binary" | "image" => {
                     ftp_type = FtpType::Binary;
                     println!("Type set Binary");
+                    info!("Type set Binary");
                 }
                 "close" | "disconnect" => {
                     println!("Closing connection");
+                    info!("Closing connection");
                     break;
                 }
                 "cd" | "cwd" | "dir" => client::change_dir(&mut client, &args, debug, verbose),
@@ -407,10 +441,12 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "runique" => {
                     runique = !runique;
                     println!("Receive Unqiue= {}", runique);
+                    info!("Receive Unqiue= {}", runique);
                 }
                 "sunique" => {
                     sunique = !sunique;
                     println!("Put Unqiue= {}", sunique);
+                    info!("Put Unqiue= {}", sunique);
                 }
                 "status" => {
                     client::status(&mut client,
@@ -425,8 +461,14 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "size" => client::size(&mut client, &args, debug, verbose),
                 "type" => {
                     match ftp_type {
-                        FtpType::Binary => println!("Using Binary Mode For Transfers"),
-                        FtpType::ASCII => println!("Using ASCII Mode for transfers"),
+                        FtpType::Binary => {
+                            println!("Using Binary Mode For Transfers");
+                            info!("Using Binary Mode For Transfers");
+                        }
+                        FtpType::ASCII => {
+                            println!("Using ASCII Mode for transfers");
+                            info!("Using ASCII Mode for transfers");
+                        }
                     }
                 }
                 "debug" => {
@@ -496,11 +538,12 @@ fn get_commands() -> (String, String) {
 
     let s1 = format!("{}", cmd);
     let s2 = format!("{}", args);
-
+    debug!("Retrieving commands {} {}", cmd, args);
     (s1, s2)
 }
 
 fn load_defaults(settings: &mut Arguements, conf: &Ini) {
+    info!("Loading default settings");
     let defaults = conf.section(Some("default".to_owned())).unwrap();
 
     settings.ftp_port = format!("{}",
@@ -540,10 +583,12 @@ fn toggle_debug(settings: &mut Arguements) {
         true => {
             settings.debug = false;
             println!("Debugging off (Debug=0)");
+            info!("Debugging off (Debug=0)");
         }
         false => {
             settings.debug = true;
             println!("Debugging on (Debug=1)");
+            info!("Debugging on (Debug=1)");
         }
     }
 }
@@ -553,10 +598,27 @@ fn toggle_verbose(settings: &mut Arguements) {
         true => {
             settings.verbose = false;
             println!("Verbose off (Verbose=0)");
+            info!("Verbose off (Verbose=0)");
         }
         false => {
             settings.verbose = true;
             println!("Verbose on (Verbose=1)");
+            info!("Verbose on (Verbose=1)");
         }
+    }
+}
+
+
+struct MyFormat;
+
+impl slog_stream::Format for MyFormat {
+    fn format(&self,
+              io: &mut io::Write,
+              rinfo: &slog::Record,
+              _logger_values: &slog::OwnedKeyValueList)
+              -> io::Result<()> {
+        let msg = format!("{} - {}\n", rinfo.level(), rinfo.msg());
+        let _ = try!(io.write_all(msg.as_bytes()));
+        Ok(())
     }
 }

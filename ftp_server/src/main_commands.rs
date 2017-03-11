@@ -302,7 +302,7 @@ pub fn rnfr(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
 
 pub fn dele(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
     let full_path = format!("{}/{}", user.cur_dir, args);
-    let mut remote = Path::new(&full_path);
+    let remote = Path::new(&full_path);
 
     info!("{} being deleted form serve", args);
     if remote.exists() && !remote.is_dir() {
