@@ -634,16 +634,10 @@ fn get_data_ports(ports: String) -> Vec<i32> {
 
 //REFRACTOR: optimize if Possible
 fn get_user_list(settings: &Settings) -> HashMap<String, user::User> {
-    let cur_directory = match env::current_dir() {
-        Ok(pwd) => format!("{}", pwd.display()).to_string(),
-        //Assigns to tmp if it doesn't exist
-        Err(err) => format!("/tmp/").to_string(),
-
-    };
 
     let mut map: HashMap<String, user::User> = HashMap::new();
 
-    let user_list = format!("{}/{}", cur_directory, settings.users_path);
+    let user_list = format!("{}", settings.users_path);
     let f = File::open(user_list).unwrap_or(File::open("conf/users.cfg").unwrap());
     let mut file = BufReader::new(f);
     // let mut users: Vec<&str> = Vec::new(); //May still user as alternative

@@ -274,14 +274,24 @@ fn login(mut client: &mut BufReader<TcpStream>, arguements: &Arguements) -> bool
         }
     };
 
+    //hidden passwords removed for turning in assignment. Necessary for test file to work
     let password = match arguements.password {
         Some(ref pass) => pass.to_string(),
         None => {
-            match prompt_password_stdout("Password: ") {
-                Ok(pwd) => pwd.to_string(),
+            print!("Password:");
+            io::stdout().flush().expect("Something went wrong flushing");
+            let mut line = String::new();
+            match io::stdin().read_line(&mut line) {
                 Err(_) => "".to_string(),
+                Ok(_) => {
+                    match line.trim().is_empty() {
+                        true => "".to_string(),
+                        false => line.trim().to_string(),
+                    }
+                }
             }
         }
+
     };
     let mut line = String::new();
     let mut cmd = format!("USER {}\r\n", user);
@@ -390,7 +400,7 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                                 verbose,
                                 sunique)
                 }
-                "rm" | "rmd" => client::remove_dir(&mut client, &args, debug, verbose),
+                "rm" | "rmd" | "rmdir" => client::remove_dir(&mut client, &args, debug, verbose),
                 "rstatus" => client::rstatus(&mut client, &args, debug, verbose),
                 "reset" => continue,
                 "rhelp" => client::r_help(&mut client, debug, verbose),

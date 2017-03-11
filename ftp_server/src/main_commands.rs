@@ -69,7 +69,6 @@ pub fn list(client: &mut BufReader<TcpStream>,
                                             server::CLOSING_DATA_CONNECTION));
 
         }
-        _ => println!("Mode not implemented"),
     }
 
 
@@ -101,7 +100,6 @@ pub fn stor(mut client: &mut BufReader<TcpStream>,
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
-        _ => println!("Mode not implemented"),
     }
 
 }
@@ -131,7 +129,6 @@ pub fn retr(mut client: &mut BufReader<TcpStream>,
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
 
         }
-        _ => println!("Mode not implemented"),
     }
 
 
@@ -181,7 +178,6 @@ pub fn stou(mut client: &mut BufReader<TcpStream>,
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stream");
 
         }
-        _ => println!("Mode not implemented"),
     }
 
 }
@@ -240,7 +236,6 @@ pub fn appe(client: &mut BufReader<TcpStream>,
             println!("mode not yet implemented");
 
         }
-        _ => println!("Mode not implemented"),
     }
 
 }
@@ -272,9 +267,21 @@ pub fn rnfr(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
                 let to = Path::new(&to_path);
 
                 println!("Curr {}\nTo: {}", from_path, to_path);
-                fs::rename(from, to).expect("could not rename file");
-                server::write_response(client,
-                                       &format!("{} Success Renaming\r\n", server::CWD_CONFIRMED));
+                match fs::rename(from, to) {
+                    Ok(_) => {
+                        server::write_response(client,
+                                               &format!("{} Success Renaming\r\n",
+                                                        server::CWD_CONFIRMED));
+
+                    }
+                    Err(_) => {
+
+                        server::write_response(client,
+                                               &format!("{} Could Not Rename File\r\n",
+                                                        server::BAD_SEQUENCE));
+                    }
+
+                }
             }
             _ => {
                 server::write_response(client,
@@ -296,10 +303,19 @@ pub fn dele(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
     let mut remote = Path::new(&full_path);
 
     if remote.exists() && !remote.is_dir() {
-        fs::remove_file(remote).expect("Could not delete file");
+        match fs::remove_file(remote) {
+            Ok(_) => {
+                server::write_response(client,
+                                       &format!("{} Success Deleting Filer\n",
+                                                server::OPERATION_SUCCESS));
+            }
+            Err(_) => {
 
-        server::write_response(client,
-                               &format!("{} Success Deleting\r\n", server::CWD_CONFIRMED));
+                server::write_response(client,
+                                       &format!("{} File could not be deleted\r\n",
+                                                server::NO_ACCESS));
+            }
+        }
 
     } else {
         server::write_response(client,
@@ -313,11 +329,20 @@ pub fn rmd(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
     let mut remote = Path::new(&full_path);
 
     if remote.exists() && remote.is_dir() {
-        fs::remove_dir(remote).expect("Could not delete file");
+        match fs::remove_dir(remote) {
+            Ok(_) => {
+                server::write_response(client,
+                                       &format!("{} Success Deleting Directory\r\n",
+                                                server::CWD_CONFIRMED));
+            }
+            Err(_) => {
 
-        server::write_response(client,
-                               &format!("{} Success Deleting Directory\r\n",
-                                        server::CWD_CONFIRMED));
+                server::write_response(client,
+                                       &format!("{} Directory is not empty\r\n",
+                                                server::NO_ACCESS));
+            }
+        }
+
 
     } else {
         server::write_response(client,
