@@ -46,6 +46,7 @@ use slog::DrainExt;
 
 // Local Modules
 mod server;
+mod tests;
 mod user;
 mod main_commands;
 
