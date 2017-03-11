@@ -1,4 +1,3 @@
-use std::io::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct User {
@@ -18,5 +17,9 @@ impl User {
             path: "".to_string(),
             cur_dir: "".to_string(),
         }
+    }
+
+    pub fn set_role(&mut self, new_role: &str) {
+        self.role = new_role.to_string();
     }
 }

@@ -1,0 +1,34 @@
+open localhost 2115
+classftp
+micarock520
+mkdir rustypachev
+runique
+sunique
+debug
+verbose
+ls
+cd rustypachev
+ls
+put test.txt dititwork.txt
+get diditwork.txt abc.txt
+put abc.txt lesson.txt
+mget diditwork.txt lesson.txt
+cdup
+mlist rustypachev . list
+y
+type i
+cd rustypachev
+rename diditwork.txt itworked.txt
+ls
+cdup
+mkdir testdir
+rmd testdir
+cd rustypachev
+dele itworked.txt
+ls
+pwd
+lpwd
+lls
+rmdir rustypachev
+ls
+quit

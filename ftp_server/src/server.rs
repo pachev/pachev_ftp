@@ -26,9 +26,9 @@ pub const ITEM_EXISTS: u32 = 350;
 pub const INVALID_USER_OR_PASS: u32 = 430;
 pub const NOT_UNDERSTOOD: u32 = 500;
 pub const BAD_SEQUENCE: u32 = 501;
-pub const ILLEGAL_PORT: u32 = 500;
 pub const AUTHENTICATION_FAILED: u32 = 530;
 pub const NO_ACCESS: u32 = 550;
+
 
 
 #[derive(Debug, Copy, Clone)]
@@ -37,6 +37,7 @@ pub enum FtpMode {
     Passive,
 }
 
+//Function that automatically writes to any stream wrapped in BufReader
 pub fn write_response(client: &mut BufReader<TcpStream>, cmd: &str) {
     client.get_mut()
         .write(cmd.to_string().as_bytes())
@@ -44,6 +45,8 @@ pub fn write_response(client: &mut BufReader<TcpStream>, cmd: &str) {
     client.get_mut().flush().expect("Something went wrong flushing stream");
 }
 
+
+//Function that automatically reads from any stream wrapped in BufReader
 pub fn read_message(client: &mut BufReader<TcpStream>) -> String {
     let mut response = String::new();
     client.read_line(&mut response).expect("Could not read message");
@@ -53,6 +56,7 @@ pub fn read_message(client: &mut BufReader<TcpStream>) -> String {
 
 }
 
+//Logs in a user based on the current list of users
 pub fn handle_user(mut client: &mut BufReader<TcpStream>,
                    arg: &str,
                    map: &HashMap<String, User>)
@@ -67,6 +71,7 @@ pub fn handle_user(mut client: &mut BufReader<TcpStream>,
                                             AUTHENTICATION_FAILED,
                                             arg));
 
+                    info!("{} is not allowed", user.name);
                     return false;
                 }
                 "blocked" => {
@@ -74,6 +79,7 @@ pub fn handle_user(mut client: &mut BufReader<TcpStream>,
                                    &format!("{} {} This user is blocked\r\n",
                                             AUTHENTICATION_FAILED,
                                             arg));
+                    info!("{} is blocked", user.name);
                     return false;
 
                 }
@@ -131,9 +137,12 @@ pub fn handle_user(mut client: &mut BufReader<TcpStream>,
     }
 }
 
+//Handles the changing of working directory
 pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
     println!("user path: {}", user.path);
-    println!("cur path: {}", user.cur_dir);
+    println!("user path: {}", user.path);
+    info!("cur path: {}", user.cur_dir);
+    info!("cur path: {}", user.cur_dir);
 
     let cur_dir = format!("{}", user.cur_dir).to_string();
     let arg_dir = format!("{}/{}", user.cur_dir, args).to_string();
@@ -152,22 +161,21 @@ pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
     }
 
     let new_path = temp_path;
-    println!("temp path: {}", temp_path.display());
 
     match new_path < user_root {
         true => {
-            println!("new path is less then root");
+            debug!("new path is less then root");
             write_response(client,
                            &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
         }
         false => {
             if new_path.exists() && new_path.is_dir() {
-                println!("New path exists");
+                debug!("New path exists");
                 user.cur_dir = new_path.display().to_string();
                 write_response(client,
                                &format!("{} CWD Command Success \r\n", CWD_CONFIRMED));
             } else {
-                println!("New path doesn't  exists");
+                debug!("New path doesn't  exists");
                 write_response(client,
                                &format!("{} {} No Such File or Directory \r\n", NO_ACCESS, args));
             }
@@ -175,13 +183,13 @@ pub fn cwd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
     }
 
     println!("new cur path: {}", user.cur_dir);
+    info!("new cur path: {}", user.cur_dir);
 
 }
 
-//TODO: implement logic for user permissions here
 pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
-    println!("user path: {}", user.path);
-    println!("cur path: {}", user.cur_dir);
+    info!("user path: {}", user.path);
+    info!("cur path: {}", user.cur_dir);
 
     //REFRACTOR: PutUser directory and path in one line
     let user_dir = format!("{}", user.path);
@@ -203,7 +211,7 @@ pub fn cdup(client: &mut BufReader<TcpStream>, user: &mut User) {
         }
     }
 
-    println!("NEW cur path: {}", user.cur_dir);
+    info!("NEW cur path: {}", user.cur_dir);
 
 
 }
@@ -219,6 +227,8 @@ pub fn mkd(client: &mut BufReader<TcpStream>, args: &str, user: &mut User) {
         fs::create_dir_all(&path).expect("Could not create directory");
     }
 
+
+    info!("Creating new directory: {}", args);
     write_response(client,
                    &format!("{} {} creation success\r\n", PATHNAME_AVAILABLE, args));
 
@@ -229,11 +239,14 @@ pub fn handle_type(client: &mut BufReader<TcpStream>, args: &str) -> String {
     match args {
         "i" | "I" => {
             write_response(client, &format!("{} Type set to I\r\n", OPERATION_SUCCESS));
+            info!("Switching type to binary");
             return "BINARY".to_string();
         }
         "a" | "A" => {
 
             write_response(client, &format!("{} Type set to A\r\n", OPERATION_SUCCESS));
+
+            info!("Switching type to ASCII");
             return "ASCII".to_string();
         }
         _ => return "".to_string(),
@@ -257,7 +270,7 @@ pub fn handle_mode(client: &mut BufReader<TcpStream>, ftp_mode: FtpMode, data_po
                                     port2));
         }
 
-        FtpMode::Active(addr) => {
+        FtpMode::Active(_) => {
             write_response(client,
                            &format!("{} Port command successful\r\n",
                                     OPERATION_SUCCESS,
@@ -269,8 +282,6 @@ pub fn handle_mode(client: &mut BufReader<TcpStream>, ftp_mode: FtpMode, data_po
 
 
 
-//Refractor: Consider returning a result from here for global error handling
-//and write a file instead of directly to stream
 pub fn ftp_ls(user: &User, mut stream: &mut TcpStream, args: &str) {
     //HANDLE not a directory
     let mut cur_dir = format!("{}", user.cur_dir);
@@ -282,8 +293,7 @@ pub fn ftp_ls(user: &User, mut stream: &mut TcpStream, args: &str) {
     let path = Path::new(&cur_dir);
 
     println!("cur_dir {}", path.display());
-    let mut paths = fs::read_dir(path).expect("Could not read directory for listing {}");
-    //TODO: check here for
+    let paths = fs::read_dir(path).expect("Could not read directory for listing {}");
 
     for path in paths {
         let path = path.unwrap().path();
@@ -296,7 +306,7 @@ pub fn ftp_ls(user: &User, mut stream: &mut TcpStream, args: &str) {
                            meta.len(),
                            &shortpath[pos + 7..]);
 
-        stream.write(format!("{}\r\n", line).as_bytes());
+        stream.write(format!("{}\r\n", line).as_bytes()).unwrap();
     }
 
 }
@@ -329,7 +339,6 @@ pub fn write_to_file(file: &mut File, stream: &mut TcpStream) {
 
 pub fn append_to_file(file: &mut File, stream: &mut TcpStream) {
     let mut client = BufReader::new(stream);
-    let mut buf = String::new();
     let mut buf_bytes = Vec::new();
 
     println!("Trying to read meassage");
@@ -337,10 +346,11 @@ pub fn append_to_file(file: &mut File, stream: &mut TcpStream) {
     println!("Message read");
 
     println!("Trying to write meassage");
-    file.write_all(&buf_bytes);
+    file.write_all(&buf_bytes).expect("Could not write to file");
 }
 
 
+//utility operation to combine high and low ports
 pub fn to_ftp_port(b1: u16, b2: u16) -> u16 {
     b1 * 256 + b2
 }

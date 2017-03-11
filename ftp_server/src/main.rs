@@ -1,10 +1,11 @@
-//! FTP Server implemented in rust for CNT4713 Net Centric a
+//! FTP Server implemented in rust for CNT4713 Net Centric at
 //! Florida International University
 
 extern crate argparse; //argument parsing such as -h -d etc..
-extern crate rand;
-extern crate ini;
+extern crate rand; // unique string names to handle collisions
+extern crate ini; // configuration file parser
 
+// External logging library for pretty logging
 #[macro_use]
 extern crate slog;
 extern crate slog_stream;
@@ -12,9 +13,7 @@ extern crate slog_stdlog;
 #[macro_use]
 extern crate log;
 
-//Reading from config files
 use ini::Ini;
-
 
 use std::io::prelude::*; //the standard io functions that come with rust
 use std::io::{Write, BufReader};
@@ -31,17 +30,13 @@ use std::fs::OpenOptions;
 use std::fs::File;
 use std::process;
 
-use std::env; //To collect arguements and variables
-// use std::process::exit; //Gracefully exiting
+use std::env;
 use std::iter::Iterator;
 use std::collections::HashMap;
 
-use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue, StoreFalse};
+use argparse::{ArgumentParser, Print, Store, StoreTrue, StoreFalse};
 use slog::DrainExt;
 
-//TODO: implement this: https://github.com/Evrey/passwors#passwors-usage
-//TODO: Add logger information for entire program
-//TODO: Add Mutex to decrement port_count after client connection
 
 
 // Local Modules
@@ -69,8 +64,8 @@ struct Settings {
     run_test_file: String,
     config_file: String,
     log_file: String,
-    MAX_USERS: String,
-    MAX_ATTEMPTS: String,
+    max_users: String,
+    max_attempts: String,
 }
 
 //These are the defaults incase no arguements are provided
@@ -100,8 +95,8 @@ impl Settings {
             run_test_file: "".to_string(),
             config_file: "".to_string(),
             log_file: "logs/fserver.log".to_string(),
-            MAX_USERS: "200".to_string(),
-            MAX_ATTEMPTS: "3".to_string(),
+            max_users: "200".to_string(),
+            max_attempts: "3".to_string(),
         }
     }
 }
@@ -113,8 +108,10 @@ fn main() {
     //Loading default setting from conf file
     load_defaults(&mut settings, &conf);
 
-    //This is due to borrowing issue I'm setting a default mode of true
-    //but use the argparser to allow the user to set the transfer mode
+    /*This is due to borrowing issue I'm setting a default mode of true
+     * but use the argparser to allow the user to set the transfer mode
+     */
+
     let mut passive = true;
 
     {
@@ -167,23 +164,28 @@ fn main() {
     settings.passive = passive;
 
 
+    //Creating the database of users
     let mut users: HashMap<String, user::User> = HashMap::new();
     users = get_user_list(&settings);
 
     let service_port = format!("{}", settings.service_port);
-    let mut map = users.clone(); //needed to clone due to spawning
+    let mut map = users.clone(); //Cloning users for service port usage
     let mut serv_settings = settings.clone();
 
-    // # This is the service prot for the FTP server
+    // # This is the service port for the FTP server
     // It will be in the background stoping everything and starting everything
     let thread = thread::spawn(move || {
 
         let server = format!("127.0.0.1:{}", service_port);
         let listener = TcpListener::bind(server.as_str()).expect("Could not bind to main port");
-        let (stream, addr) = listener.accept().expect("Could not connect to service prot");
+        let (stream, _) = listener.accept().expect("Could not connect to service prot");
         let mut serv_client = BufReader::new(stream);
         let mut logged_in = false;
         let mut started = true;
+        server::write_response(&mut serv_client,
+                               "Welcome to Sevice Port please login with admin user 
+                               using 'USER [username] Followed by 'PASS [password]'\r\n");
+
 
         loop {
 
@@ -201,7 +203,6 @@ fn main() {
 
                 match cmd.to_lowercase().as_ref() {
                     "server_stop" => {
-                        //TODO:Implement graceful stopping
                         process::exit(1);
                     }
                     "server_start" => {
@@ -211,35 +212,38 @@ fn main() {
                                                        "Server is already running \r\n")
                             }
                             false => {
-                                start_server(&mut serv_settings, &mut map);
+                                start_server(&mut serv_settings, &map);
                                 server::write_response(&mut serv_client, "Server has started\r\n");
                             }
 
                         }
                     }
                     "server_pause" => {
-                        //TODO:Implement graceful stopping
-                        process::exit(1);
+                        started = pause_server();
                     }
                     _ => {
                         println!("Bad Command");
                     }
                 }
             } else {
-
+                logged_in = server::handle_user(&mut serv_client, &args, &map);
             }
         }
 
     });
 
-    start_server(&mut settings, &mut users);
+    start_server(&mut settings, &users);
 
-    thread.join();
+    thread.join().expect("Could not join service thread");
 
 }
+fn pause_server() -> bool {
+    false
+}
 
-fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>) {
+fn start_server(settings: &mut Settings, users: &HashMap<String, user::User>) {
 
+    let mut threads = vec![];
 
     let log_path = Path::new(&settings.log_file);
     let log_file = OpenOptions::new()
@@ -253,7 +257,7 @@ fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>
     let logger = slog::Logger::root(drain, o!());
     slog_stdlog::set_logger(logger).unwrap();
 
-    info!("global file logger");
+    info!("Global file logger for FTP Server");
 
     //Sets FTP ROOT
     create_root(&settings);
@@ -269,27 +273,32 @@ fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>
 
 
     for stream in listener.incoming() {
-        if (port_count >= 200) {
+        if port_count >= 200 {
             info!("Reached client threshold");
             continue;
         }
 
         let data_port = data_port_range[port_count];
-        let mut stream = stream.expect("Could not create TCP Stream");
+        let stream = stream.expect("Could not create TCP Stream");
 
 
-        info!("DEBUG: client {} has started and given data port {}",
-              stream.peer_addr().unwrap().ip(),
-              data_port);
+        debug!("client {} has started and given data port {}",
+               stream.peer_addr().unwrap().ip(),
+               data_port);
 
         let mut map = users.clone();
         let settings = settings.clone();
 
-        spawn(move || {
+        threads.push(spawn(move || {
             let mut b_stream = BufReader::new(stream);
             handle_client(&mut b_stream, &data_port, &settings, &mut map);
-        });
+        }));
         port_count += 1;
+    }
+
+    for t in threads {
+        info!("Stopping all threads");
+        let _ = t.join();
     }
 
 }
@@ -306,7 +315,7 @@ fn start_server(settings: &mut Settings, mut users: &HashMap<String, user::User>
 fn handle_client(mut client: &mut BufReader<TcpStream>,
                  data_port: &i32,
                  settings: &Settings,
-                 mut map: &HashMap<String, user::User>) {
+                 map: &HashMap<String, user::User>) {
 
     let data_server = format!("{}:{}",
                               client.get_mut().local_addr().unwrap().ip(),
@@ -314,30 +323,27 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
 
     let mut actv_socket_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 27598);
 
-    let mut data_type = String::new();
-    let mut data_listener = TcpListener::bind(data_server.as_str())
-        .expect("Could not open data serve");
+    let data_listener = TcpListener::bind(data_server.as_str()).expect("Could not open data serve");
 
     let mut ftp_mode = match settings.passive {
         true => {
-            // println!("Running in passive mode");
+            info!("Running in passive mode");
             FtpMode::Passive
         }
         false => {
-            // println!("Running in active mode");
+            info!("Running in active mode");
             FtpMode::Active(actv_socket_addr)
         }
     };
 
     let mut logged_in = false;
-    let mut limit = 3; //TODO: add this in the configuration file
-    let mut msg = String::new();
+    let mut limit = settings.max_attempts.parse::<i32>().unwrap_or(3);
     let mut user = User::new();
 
-    msg = format!("{} {} {}\r\n",
-                  server::LOGGED_EXPECTED,
-                  settings.welcome,
-                  client.get_mut().local_addr().unwrap().ip());
+    let msg = format!("{} {} {}\r\n",
+                      server::LOGGED_EXPECTED,
+                      settings.welcome,
+                      client.get_mut().local_addr().unwrap().ip());
 
 
     server::write_response(&mut client, &msg);
@@ -355,12 +361,106 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
         };
 
         println!("CLIENT: {} {}", cmd, args);
+        info!("CLIENT: {} {}", cmd, args);
 
-        //TODO: Fix logic with logged_in so I'm not repatedly checking for each pattern
 
-        match cmd.to_lowercase().as_ref() {
-            "user" => {
-                if !logged_in {
+        if logged_in {
+            match cmd.to_lowercase().as_ref() {
+                "appe" => {
+                    mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
+
+                }
+                "cdup" => {
+                    server::cdup(&mut client, &mut user);
+                }
+
+                "cwd" | "cd" => {
+                    server::cwd(&mut client, &args, &mut user);
+                }
+                "dele" => {
+                    mc::dele(&mut client, &user, &args);
+                }
+                "list" => {
+                    mc::list(&mut client,
+                             &user,
+                             ftp_mode,
+                             &args,
+                             &data_port,
+                             &data_listener);
+                }
+                "mkd" | "mkdir" => {
+                    server::mkd(&mut client, &args, &mut user);
+                }
+                "noop" => {
+                    server::write_response(&mut client,
+                                           &format!("{} NOOP successfull\r\n",
+                                                    server::OPERATION_SUCCESS));
+                }
+                "pasv" => {
+                    ftp_mode = FtpMode::Passive;
+                    server::handle_mode(&mut client, ftp_mode, &data_port);
+
+                }
+                "port" => {
+                    actv_socket_addr = port_addr(args);
+                    ftp_mode = FtpMode::Active(actv_socket_addr);
+
+                    server::handle_mode(&mut client, ftp_mode, &data_port);
+                }
+                "pwd" => {
+                    let shortpath = format!("{}", user.cur_dir);
+                    let pos = shortpath.find("ftproot").unwrap(); //Possible improvement here(error checking)
+                    server::write_response(&mut client,
+                                           &format!("{} {} is the current directory\r\n",
+                                                    server::PATHNAME_AVAILABLE,
+                                                    &shortpath[pos + 7..]));
+
+                }
+                "retr" => {
+                    mc::retr(&mut client, &user, ftp_mode, &args, &data_listener);
+                }
+                "rmd" => {
+                    mc::rmd(&mut client, &user, &args);
+                }
+                "rnfr" => {
+                    mc::rnfr(&mut client, &user, &args);
+                }
+                "stor" => {
+                    mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
+                }
+                "stou" => {
+                    mc::stou(&mut client, &user, ftp_mode, &args, &data_listener);
+                }
+                "type" => {
+                    server::handle_type(&mut client, &args);
+                }
+                "quit" | "exit" | "logout" => {
+                    server::write_response(&mut client,
+                                           &format!("{} GOODBYE\r\n", server::GOODBYE));
+                    break;
+                }
+                "syst" => {
+                    server::write_response(&mut client,
+                                           &format!("{} UNIX Type: L8\r\n",
+                                                    server::SYSTEM_RECEIVED));
+                }
+                "help" | "?" => {
+                    write!(client.get_mut(), "{}\r\n", COMMANDS_HELP)
+                        .expect("Could not write to client");
+                }
+                "user" => {
+                    server::write_response(client,
+                                           &format!("{} Badd sequence of commands\r\n",
+                                                    server::NOT_UNDERSTOOD));
+
+                }
+                _ => server::write_response(&mut client, &format!("500 Invalid Command\r\n")),
+            }
+
+        } else {
+
+            match cmd.to_lowercase().as_ref() {
+                "user" => {
                     match server::handle_user(&mut client, &args, &map) {
                         true => {
                             logged_in = true;
@@ -370,193 +470,26 @@ fn handle_client(mut client: &mut BufReader<TcpStream>,
                             logged_in = false;
                             limit -= 1;
                             if limit <= 0 {
+                                info!("{} reached logged limit", args);
                                 break;
                             }
                         }
                     }
-                } else {
-                    server::write_response(client,
-                                           &format!("{} Badd sequence of commands\r\n",
-                                                    server::NOT_UNDERSTOOD));
                 }
-            }
-            "appe" => {
-                if logged_in {
-                    mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
-                } else {
+                _ => {
                     server::write_response(&mut client,
                                            &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
+                                                    server::AUTHENTICATION_FAILED))
                 }
-            }
-            "cdup" => {
-                if logged_in {
-                    server::cdup(&mut client, &mut user);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "cwd" | "cd" => {
-                if logged_in {
-                    server::cwd(&mut client, &args, &mut user);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "dele" => {
-                if logged_in {
-                    mc::dele(&mut client, &user, &args);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "list" => {
-                if logged_in {
-                    mc::list(&mut client,
-                             &user,
-                             ftp_mode,
-                             &args,
-                             &data_port,
-                             &data_listener);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "mkd" | "mkdir" => {
-                if logged_in {
-                    server::mkd(&mut client, &args, &mut user);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "noop" => {
-                server::write_response(&mut client,
-                                       &format!("{} NOOP successfull\r\n",
-                                                server::OPERATION_SUCCESS));
-            }
-            "pasv" => {
-                if logged_in {
-                    ftp_mode = FtpMode::Passive;
-                    server::handle_mode(&mut client, ftp_mode, &data_port);
-
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "port" => {
-                if logged_in {
-                    actv_socket_addr = port_addr(args);
-                    ftp_mode = FtpMode::Active(actv_socket_addr);
-
-                    server::handle_mode(&mut client, ftp_mode, &data_port);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "pwd" => {
-                if logged_in {
-                    let shortpath = format!("{}", user.cur_dir);
-                    let pos = shortpath.find("ftproot").unwrap(); //Possible improvement here(error checking)
-                    server::write_response(&mut client,
-                                           &format!("{} {} is the current directory\r\n",
-                                                    server::PATHNAME_AVAILABLE,
-                                                    &shortpath[pos + 7..]));
-
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "retr" => {
-                if logged_in {
-                    mc::retr(&mut client, &user, ftp_mode, &args, &data_listener);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "rmd" => {
-                if logged_in {
-                    mc::rmd(&mut client, &user, &args);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "rnfr" => {
-                if logged_in {
-                    mc::rnfr(&mut client, &user, &args);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "stor" => {
-                if logged_in {
-                    mc::stor(&mut client, &user, ftp_mode, &args, &data_listener);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "stou" => {
-                if logged_in {
-                    mc::stou(&mut client, &user, ftp_mode, &args, &data_listener);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "type" => {
-                if logged_in {
-                    server::handle_type(&mut client, &args);
-                } else {
-                    server::write_response(&mut client,
-                                           &format!("{} Not Logged In\r\n",
-                                                    server::AUTHENTICATION_FAILED));
-                }
-            }
-            "quit" | "exit" | "logout" => {
-                server::write_response(&mut client, &format!("{} GOODBYE\r\n", server::GOODBYE));
-                break;
-            }
-            "syst" => {
-                //TODO: Make system  ox agnostic
-                server::write_response(&mut client,
-                                       &format!("{} UNIX Type: L8\r\n", server::SYSTEM_RECEIVED));
-            }
-            //TODO fix the way that th
-            "help" | "?" => {
-                write!(client.get_mut(), "{}\r\n", COMMANDS_HELP);
 
             }
-            _ => server::write_response(&mut client, &format!("Invalid Command\r\n")),
         }
 
     }
 
     client.get_mut().shutdown(Shutdown::Both).expect("couldn't close server");
     println!("Client {} has closed connection", data_port - 27500);
+    info!("Client {} has closed connection", data_port - 27500);
 }
 
 
@@ -576,9 +509,11 @@ fn initialize_user(name: &str, pass: &str, role: &str, root: &str) -> User {
     let cur_directory = match env::current_dir() {
         Ok(pwd) => format!("{}", pwd.display()).to_string(),
         //Assigns to tmp if it doesn't exist
-        Err(err) => format!("/tmp/").to_string(),
+        Err(_) => format!("/tmp/").to_string(),
 
     };
+
+    info!("Initializing users from user database");
 
     let mut user = User::new();
 
@@ -603,7 +538,7 @@ fn initialize_user(name: &str, pass: &str, role: &str, root: &str) -> User {
     let user_path = Path::new(&temp);
 
     if !user_path.exists() {
-        fs::create_dir_all(&temp).expect("Could not create user director");
+        fs::create_dir_all(&temp).expect("Could not create user directory");
     }
     user.name = format!("{}", name).to_string();
     user.pass = format!("{}", pass).to_string();
@@ -623,7 +558,7 @@ fn get_data_ports(ports: String) -> Vec<i32> {
 
     let mut port_int_range: Vec<i32> = Vec::new();
 
-    println!("{} min {} max", init_port, last_port);
+    info!("Data ports: {} min {} max", init_port, last_port);
 
     for i in init_port..last_port + 1 {
         port_int_range.push(i);
@@ -633,14 +568,13 @@ fn get_data_ports(ports: String) -> Vec<i32> {
 
 }
 
-//REFRACTOR: optimize if Possible
 fn get_user_list(settings: &Settings) -> HashMap<String, user::User> {
 
     let mut map: HashMap<String, user::User> = HashMap::new();
 
     let user_list = format!("{}", settings.users_path);
     let f = File::open(user_list).unwrap_or(File::open("conf/users.cfg").unwrap());
-    let mut file = BufReader::new(f);
+    let file = BufReader::new(f);
     // let mut users: Vec<&str> = Vec::new(); //May still user as alternative
     let mut user = user::User::new();
 
@@ -662,7 +596,7 @@ fn get_user_list(settings: &Settings) -> HashMap<String, user::User> {
                                &tokens[2].to_string(),
                                &settings.ftp_root);
         let name = tokens[0].to_string();
-        println!("name: {}, role {}", name, tokens[2]);
+        info!("name: {}, role {}", name, tokens[2]);
         map.insert(name, user);
     }
 
@@ -670,6 +604,7 @@ fn get_user_list(settings: &Settings) -> HashMap<String, user::User> {
 
 }
 
+//Converts port command arguements into a socket address
 fn port_addr(args: &str) -> SocketAddrV4 {
     let nums: Vec<u8> = args.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
     let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
@@ -679,17 +614,18 @@ fn port_addr(args: &str) -> SocketAddrV4 {
 
 }
 
+//create ftproot folder if it does not exist
 fn create_root(settings: &Settings) {
     let path = Path::new(&settings.ftp_root);
 
     if !path.exists() {
-        fs::create_dir_all(path);
+        fs::create_dir_all(path).expect("Root was not created");
     }
 }
 
-//REFRACTOR: consider a for loop and nicer syntax :(
 fn load_defaults(settings: &mut Settings, conf: &Ini) {
 
+    info!("Loading defaults from Setting File");
     let defaults = conf.section(Some("default".to_owned())).unwrap();
 
     settings.ftp_port = format!("{}",
@@ -714,10 +650,10 @@ fn load_defaults(settings: &mut Settings, conf: &Ini) {
                                            .unwrap_or(&"2799".to_string()));
 
     settings.log_file = format!("{}", defaults.get("FTP_LOG").unwrap_or(&settings.log_file));
-    settings.MAX_USERS = format!("{}",
-                                 defaults.get("MAX_USERS").unwrap_or(&settings.MAX_USERS));
-    settings.MAX_ATTEMPTS = format!("{}",
-                                    defaults.get("MAX_ATTEMPTS").unwrap_or(&settings.MAX_ATTEMPTS));
+    settings.max_users = format!("{}",
+                                 defaults.get("MAX_USERS").unwrap_or(&settings.max_users));
+    settings.max_attempts = format!("{}",
+                                    defaults.get("MAX_ATTEMPTS").unwrap_or(&settings.max_attempts));
 
     settings.ftp_mode = format!("{}",
                                 defaults.get("FTP_MODE").unwrap_or(&"PASSIVE".to_string()));

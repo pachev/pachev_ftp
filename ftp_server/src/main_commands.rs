@@ -1,12 +1,9 @@
 use rand::Rng;
 use rand;
 use std::fs::OpenOptions;
-use std::io::prelude::*; //the standard io functions that come with rust
-use std::os::unix::fs::PermissionsExt;
-use std::collections::HashMap;
-use std::io::{BufWriter, BufReader, Write};
+use std::io::BufReader;
 use std::string::String;
-use std::net::{TcpStream, TcpListener, Shutdown, SocketAddrV4};
+use std::net::{TcpStream, TcpListener, Shutdown};
 use std::path::Path;
 use std::fs;
 use std::fs::File;
@@ -41,7 +38,7 @@ pub fn list(client: &mut BufReader<TcpStream>,
 
             info!("{} in passive mode requesting LIST command", user.name);
             //getting a head start here in order to prvent slow connection
-            let (stream, addr) = listener.accept().expect("Could not accept connection");
+            let (stream, _) = listener.accept().expect("Could not accept connection");
             server::write_response(client,
                                    &format!("{} Openning ASCII mode data for file list\r\n",
                                             server::OPENNING_DATA_CONNECTION));
@@ -84,7 +81,8 @@ pub fn stor(mut client: &mut BufReader<TcpStream>,
 
     match mode {
         FtpMode::Passive => {
-            let (stream, addr) = listener.accept().expect("Could not accept connection");
+            info!("{} in passive mode requesting STOR command", user.name);
+            let (stream, _) = listener.accept().expect("Could not accept connection");
             let mut data_stream = stream;
 
             stor_file(&mut client, user, &mut data_stream, args);
@@ -95,6 +93,7 @@ pub fn stor(mut client: &mut BufReader<TcpStream>,
 
         FtpMode::Active(addr) => {
 
+            info!("{} in active mode requesting STOR command", user.name);
             let mut data_stream = TcpStream::connect(addr).expect("Could not connect to addr");
             stor_file(&mut client, user, &mut data_stream, args);
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
@@ -115,7 +114,8 @@ pub fn retr(mut client: &mut BufReader<TcpStream>,
     match mode {
         FtpMode::Passive => {
 
-            let (stream, addr) = listener.accept().expect("Could not accept connection");
+            info!("{} in passive mode requesting RETR command", user.name);
+            let (stream, _) = listener.accept().expect("Could not accept connection");
             let mut data_stream = stream;
 
             retr_file(&mut client, user, &mut data_stream, args);
@@ -124,6 +124,7 @@ pub fn retr(mut client: &mut BufReader<TcpStream>,
         }
 
         FtpMode::Active(addr) => {
+            info!("{} in active mode requesting RETR command", user.name);
             let mut data_stream = TcpStream::connect(addr).expect("Could not connect to addr");
             retr_file(&mut client, user, &mut data_stream, args);
             data_stream.shutdown(Shutdown::Both).expect("Could not shutdownd data stram");
@@ -147,12 +148,14 @@ pub fn stou(mut client: &mut BufReader<TcpStream>,
     let full_path = format!("{}/{}", user.cur_dir, args);
     let s = rng.gen_ascii_chars().take(8).collect::<String>();
 
-    let mut remote = Path::new(&full_path);
+    let remote = Path::new(&full_path);
 
     match mode {
 
         FtpMode::Passive => {
-            let (stream, addr) = listener.accept().expect("Could not accept connection");
+
+            info!("{} in passive mode requesting STOU command", user.name);
+            let (stream, _) = listener.accept().expect("Could not accept connection");
 
             let mut data_stream = stream;
 
@@ -168,6 +171,7 @@ pub fn stou(mut client: &mut BufReader<TcpStream>,
 
         FtpMode::Active(addr) => {
 
+            info!("{} in active mode requesting STOU command", user.name);
             let mut data_stream = TcpStream::connect(addr).expect("Could not connect to addr");
             if remote.exists() {
                 stor_file(&mut client, user, &mut data_stream, &s);
@@ -182,7 +186,6 @@ pub fn stou(mut client: &mut BufReader<TcpStream>,
 
 }
 
-//TODO: Fix append issue with hanging up
 pub fn appe(client: &mut BufReader<TcpStream>,
             user: &User,
             mode: FtpMode,
@@ -194,11 +197,11 @@ pub fn appe(client: &mut BufReader<TcpStream>,
         FtpMode::Passive => {
 
             //Waits for clinet to connect to data port
-            let (stream, addr) = listener.accept().expect("Could not accept connection");
+            let (stream, _) = listener.accept().expect("Could not accept connection");
 
             let mut data_stream = stream;
             let full_path = format!("{}/{}", user.cur_dir, args);
-            let mut remote = Path::new(&full_path);
+            let remote = Path::new(&full_path);
 
 
             if !remote.is_dir() {
@@ -232,7 +235,7 @@ pub fn appe(client: &mut BufReader<TcpStream>,
 
         }
 
-        FtpMode::Active(addr) => {
+        FtpMode::Active(_) => {
             println!("mode not yet implemented");
 
         }
@@ -240,10 +243,9 @@ pub fn appe(client: &mut BufReader<TcpStream>,
 
 }
 
-//REFRACTOR: Consider having a function that builds the path out of args
 pub fn rnfr(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
     let full_path = format!("{}/{}", user.cur_dir, args);
-    let mut remote = Path::new(&full_path);
+    let remote = Path::new(&full_path);
 
     if remote.exists() {
         server::write_response(client,
@@ -302,6 +304,7 @@ pub fn dele(mut client: &mut BufReader<TcpStream>, user: &User, args: &str) {
     let full_path = format!("{}/{}", user.cur_dir, args);
     let mut remote = Path::new(&full_path);
 
+    info!("{} being deleted form serve", args);
     if remote.exists() && !remote.is_dir() {
         match fs::remove_file(remote) {
             Ok(_) => {
@@ -394,7 +397,6 @@ fn retr_file(client: &mut BufReader<TcpStream>, user: &User, stream: &mut TcpStr
 
         server::write_to_stream(&mut file, &mut data_stream);
 
-        //TODO: Add how long it took to transfer file
         server::write_response(client,
                                &format!("{} Transfer Complete\r\n",
                                         server::CLOSING_DATA_CONNECTION));
