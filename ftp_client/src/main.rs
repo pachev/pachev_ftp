@@ -2,6 +2,7 @@
 extern crate argparse; //argument parsing such as -h -d etc..
 extern crate rpassword; //hidden passwords
 extern crate ini;
+extern crate rand;
 
 //Reading from config files
 use ini::Ini;
@@ -227,7 +228,7 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
 
                     }
                 }
-                "quit" | "exit" | "!" => {
+                "!" | "bye" | "quit" | "exit" => {
                     println!("Goodbye");
                     process::exit(1);
                 }
@@ -240,7 +241,7 @@ fn start_ftp_client(mut arguements: &mut Arguements) -> BufReader<TcpStream> {
                 "verbose" => {
                     toggle_verbose(&mut arguements);
                 }
-                "help" | "?" => println!("{}", utils::COMMANDS_HELP),
+                "help" | "?" | "usage" => utils::print_help(&args),
                 _ => {
                     println!("Not Connected");
                 }
@@ -330,6 +331,8 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
     };
     let mut logged_in = login(&mut client, &arguements);
     let auth_mesg = "You need to be logged in";
+    let mut runique = false;
+    let mut sunique = false;
 
     loop {
         let (cmd, args) = get_commands();
@@ -343,7 +346,7 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 }
                 "binary" | "image" => {
                     ftp_type = FtpType::Binary;
-                    println!("Type set to A- Ascii");
+                    println!("Type set Binary");
                 }
                 "close" | "disconnect" => {
                     println!("Closing connection");
@@ -353,7 +356,14 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "cdup" | "cdu" => client::change_dir_up(&mut client, debug, verbose),
                 "dele" | "del" => client::dele(&mut client, &args, debug, verbose),
                 "get" | "retr| recv" => {
-                    client::get(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                    match runique {
+                        true => {
+                            client::get_u(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                        }
+                        false => {
+                            client::get(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                        }
+                    }
                 }
                 "ls" | "list" | "dir" => client::list(&mut client, &args, ftp_mode, debug, verbose),
                 "lls" | "llist" | "ldir" => client::list_local(&mut client, &args),
@@ -372,10 +382,37 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 }
                 "pwd" => client::print_working_dir(&mut client, debug, verbose),
                 "put" | "stor" => {
-                    client::put(&mut client, &args, ftp_mode, ftp_type, debug, verbose)
+                    client::put(&mut client,
+                                &args,
+                                ftp_mode,
+                                ftp_type,
+                                debug,
+                                verbose,
+                                sunique)
                 }
                 "rm" | "rmd" => client::remove_dir(&mut client, &args, debug, verbose),
+                "rstatus" => client::rstatus(&mut client, &args, debug, verbose),
+                "reset" => continue,
                 "rhelp" => client::r_help(&mut client, debug, verbose),
+                "runique" => {
+                    runique = !runique;
+                    println!("Receive Unqiue= {}", runique);
+                }
+                "sunique" => {
+                    sunique = !sunique;
+                    println!("Put Unqiue= {}", sunique);
+                }
+                "status" => {
+                    client::status(&mut client,
+                                   debug,
+                                   verbose,
+                                   ftp_type,
+                                   ftp_mode,
+                                   runique,
+                                   sunique)
+                }
+                "system" => client::system(&mut client, &args, debug, verbose),
+                "size" => client::size(&mut client, &args, debug, verbose),
                 "type" => {
                     match ftp_type {
                         FtpType::Binary => println!("Using Binary Mode For Transfers"),
@@ -388,12 +425,13 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "verbose" => {
                     toggle_verbose(&mut arguements);
                 }
-                "quit" | "exit" | "bye" => {
+                "!" | "bye" | "quit" | "exit" => {
                     println!("Goodbye");
                     client::quit_server(&mut client, debug, verbose);
                     process::exit(1);
                 }
-                "help" => println!("{}", utils::COMMANDS_HELP),
+                "help" | "?" | "usage" => utils::print_help(&args),
+                "user" => println!("Already connected"),
                 _ => {
                     println!("Invalid Command");
                 }
@@ -401,12 +439,12 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
 
         } else {
             match cmd.to_lowercase().as_ref() { 
-                "quit" | "exit" => {
+                "!" | "bye" | "quit" | "exit" => {
                     println!("Goodbye");
                     client::quit_server(&mut client, debug, verbose);
                     process::exit(1);
                 }
-                "help" => println!("{}", utils::COMMANDS_HELP),
+                "help" | "?" | "usage" => utils::print_help(&args),
                 "user" => logged_in = login(&mut client, &arguements),
                 "open" | "ftp" => {
                     println!("Already connected, use close to end connection");

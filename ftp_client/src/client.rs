@@ -1,4 +1,6 @@
 use std::fs::File;
+use rand::Rng;
+use rand;
 use std::os::unix::fs::PermissionsExt;
 use std::env;
 use std::thread; //For threads
@@ -6,6 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::error::Error;
 use std::io;
+use std::time::Duration;
 use std::io::Write;
 use std::io::prelude::*;
 use std::io::{BufReader, Error as IoError};
@@ -61,18 +64,25 @@ pub fn read_message(client: &mut BufReader<TcpStream>, verbose: bool) -> String 
 }
 
 //reads multi line message
-pub fn read_multi_message(client: &mut BufReader<TcpStream>) -> String {
+pub fn read_multi_message(client: &mut BufReader<TcpStream>, verbose: bool) -> String {
     let mut response = "end of transmission".to_string();
-    let mut res = String::new();
-    while client.read_line(&mut res).unwrap() > 0 {
-        print!("SERVER: {}", res);
-        res.clear();
+
+    client.get_mut().set_read_timeout(Some(Duration::from_millis(500))).expect("Could set timeout");
+
+    for line in client.lines() {
+        match line {
+            Ok(res) => {
+                println!("Server {}", res);
+            }
+            Err(_) => {
+                break;
+            }
+        }
     }
     return response;
 
 }
 
-//TODO: Fix hanging up from rhelp
 pub fn get_code_from_respone(line: &str) -> Result<i32, &'static str> {
 
     //Debug info can go in here, same as verbose
@@ -194,7 +204,7 @@ pub fn r_help(mut stream: &mut BufReader<TcpStream>, debug: bool, verbose: bool)
     let mut response = String::new();
 
     write_command(&mut stream, &cmd, debug);
-    read_multi_message(&mut stream);
+    read_multi_message(&mut stream, verbose);
 }
 
 //Delete  a File
@@ -231,7 +241,8 @@ pub fn put(mut stream: &mut BufReader<TcpStream>,
            ftp_mode: FtpMode,
            ftp_type: FtpType,
            debug: bool,
-           verbose: bool) {
+           verbose: bool,
+           sunique: bool) {
 
     let mut lpath = String::new();
     let mut rpath = String::new();
@@ -258,7 +269,12 @@ pub fn put(mut stream: &mut BufReader<TcpStream>,
             write_command(&mut stream, "PASV \r\n", debug);
             response = read_message(&mut stream, verbose);
             let addr = get_pasv_address(&response);
-            write_command(&mut stream, &format!("STOR {} \r\n", rpath), debug);
+            match sunique {
+                true => write_command(&mut stream, &format!("STOR {} \r\n", rpath), debug),
+                false => write_command(&mut stream, &format!("STOU {} \r\n", rpath), debug),
+            }
+
+
             stor_file(&addr, &lpath, &mut stream, debug);
 
             response.clear();
@@ -310,9 +326,10 @@ pub fn get(mut stream: &mut BufReader<TcpStream>,
         FtpMode::Passive => {
             write_command(&mut stream, "PASV\r\n", debug);
             response = read_message(&mut stream, verbose);
+
             let addr = get_pasv_address(&response);
             write_command(&mut stream, &format!("RETR {}\r\n", rpath), debug);
-            get_file(&addr, &rpath, &mut stream, verbose);
+            get_file(&addr, &lpath, &mut stream, verbose);
             response.clear();
             response = read_message(&mut stream, verbose);
         }
@@ -543,6 +560,15 @@ pub fn mlist(mut stream: &mut BufReader<TcpStream>,
 
 }
 
+pub fn rstatus(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
+    let mut cmd = format!("STAT {}\r\n", args);
+    let mut response = String::new();
+
+    write_command(&mut stream, &cmd, debug);
+    response = read_multi_message(&mut stream, verbose);
+}
+
+
 pub fn appe(mut stream: &mut BufReader<TcpStream>,
             args: &str,
             ftp_mode: FtpMode,
@@ -586,8 +612,112 @@ pub fn appe(mut stream: &mut BufReader<TcpStream>,
 }
 
 
+pub fn get_u(mut stream: &mut BufReader<TcpStream>,
+             args: &str,
+             ftp_mode: FtpMode,
+             ftp_type: FtpType,
+             debug: bool,
+             verbose: bool) {
+
+    //This is in case the file name is not unique
+    let mut rng = rand::thread_rng();
+    let s = rng.gen_ascii_chars().take(8).collect::<String>();
+    let mut response = String::new();
+    let mut lpath = String::new();
+    let mut rpath = String::new();
+
+    match args.find(' ') {
+        Some(pos) => {
+            rpath = args[0..pos].to_string();
+            lpath = args[pos + 1..].to_string();
+        }
+        None => {
+            rpath = args.to_string();
+            lpath = rpath.clone();
+        }
+    }
+
+    let mut local = Path::new(&lpath);
+
+    match ftp_mode {
+
+        FtpMode::Passive => {
+
+            write_command(&mut stream, "PASV \r\n", debug);
+            response = read_message(&mut stream, verbose);
+
+            let addr = get_pasv_address(&response);
+
+            write_command(&mut stream, &format!("RETR {}\r\n", rpath), debug);
+
+            if local.exists() {
+                println!("Local file exits, replacing with {}", s);
+                get_file(&addr, &s, &mut stream, verbose);
+            } else {
+                get_file(&addr, &lpath, &mut stream, verbose);
+            }
+            response.clear();
+            response = read_message(&mut stream, verbose);
+
+        }
+
+        FtpMode::Active(addr) => {}
+    }
+}
+
+//Retrieves the size of a file
+
+pub fn size(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
+    let mut cmd = format!("SIZE {}\r\n", args);
+    let mut response = String::new();
+    set_type(&mut stream, FtpType::Binary, debug);
+    response = read_message(&mut stream, verbose);
+    response.clear();
+
+    write_command(&mut stream, &cmd, debug);
+    response = read_message(&mut stream, verbose);
+    let pos = response.find(' ').unwrap();
+    println!("{} b", &response[pos + 1..].trim());
+}
+
+// Status of local staus
+pub fn status(mut stream: &mut BufReader<TcpStream>,
+              debug: bool,
+              verbose: bool,
+              ftp_type: FtpType,
+              ftp_mode: FtpMode,
+              sunique: bool,
+              runique: bool) {
+
+    let mode = match ftp_mode {
+        FtpMode::Passive => "Passive Mode",
+        FtpMode::Active(_) => "Active Mode",
+    };
+
+    let t_type = match ftp_type {
+        FtpType::Binary => "Binary mode on for transfers",
+        FtpType::ASCII => "ASCII mode is on for transfers",
+    };
+
+    let con_to = stream.get_mut().peer_addr().unwrap();
+
+    println!("Connected to {}", con_to);
+    println!("Mode is set  to {}", mode);
+    println!("Transfer Type is set  to {}", t_type);
+    println!("Debug is set  to {}", debug);
+    println!("Verbose is set  to {}", verbose);
+}
 
 
+// System call of remote
+pub fn system(mut stream: &mut BufReader<TcpStream>, args: &str, debug: bool, verbose: bool) {
+    let mut cmd = format!("SYST {}\r\n", args);
+    let mut response = String::new();
+
+    write_command(&mut stream, &cmd, debug);
+    response = read_message(&mut stream, verbose);
+    println!("{}", response);
+}
 
 //helper function to turn server port into valid tcp_stream port
 fn to_ftp_port(b1: u16, b2: u16) -> u16 {
@@ -669,6 +799,7 @@ fn stor_file(addr: &SocketAddrV4,
     write_to_stream(&mut file, &mut stream2);
     stream2.shutdown(Shutdown::Both).expect("Failed to close data stream");
 }
+
 
 fn get_file(addr: &SocketAddrV4,
             rpath: &str,

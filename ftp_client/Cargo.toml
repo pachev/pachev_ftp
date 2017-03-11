@@ -6,6 +6,7 @@ authors = ["Pachev Joseph <pachevjoseph@gmail.com>"]
 [dependencies]
 argparse = "0.2.1"
 rpassword = "0.3.1"
+rand = "0.3"
 log="*"
 slog="1.5.2"
 slog-term="1.5.0"
