@@ -1,0 +1,20 @@
+open localhost 2115
+classftp
+micarock520
+debug
+verbose
+ls
+mkdir test_dir
+cd test_dir
+put Readme.md readme.md
+put Readme.md nono.txt
+get nono.txt trial.txt
+mput Readme.md trial.txt
+ls
+mdele readme.md nono.txt trial.txt
+ls
+cdup
+ls
+rmd test_dir
+ls
+quit

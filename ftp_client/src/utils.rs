@@ -57,6 +57,7 @@ pub fn print_help(args: &str) {
         "rstatus" => println!("rstatus- Retrieves remote server status"),
         "rmdir" | "rmd" => println!("rmdir [path]- deletes a remote directory"),
         "runique" => println!("runique- Toggles receive unique to not overwrite existing files"),
+        "rename" => println!("rename [from] [to]- Renames a remote file"),
         "sunique" => println!("runique- Toggles store unique to not overwrite existing files"),
         "status" => println!("status- prints local status"),
         "system" => println!("system- prints remote system type"),

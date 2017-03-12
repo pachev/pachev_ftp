@@ -1,16 +1,10 @@
 open localhost 2115
 classftp
-micarock50
-mkdir rustypachev
-runique
-sunique
-debug
-verbose
-ls
-cd rustypachev
-ls
-put test.txt dititwork.txt
-cdup
-rmdir rustypachev
-ls
+micarock521
+user
+classftp
+micarock522
+user
+classftp
+micarock523
 quit

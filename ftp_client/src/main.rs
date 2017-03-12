@@ -19,22 +19,13 @@ use std::process;
 use std::path::Path;
 use std::io::BufReader; //the standard io functions that come with rust
 use std::net::{SocketAddrV4, Ipv4Addr, TcpStream};
-use std::thread::spawn; //For threads
 use std::io;
 
 use std::fs::OpenOptions;
 use std::string::String;
-use std::str::FromStr;
-use std::net::ToSocketAddrs;
 
-use std::env; //To collect arguements and variables
-use std::process::exit; //Gracefully exiting
-use std::iter::Iterator;
-use std::collections::HashMap;
 
 use argparse::{ArgumentParser, Print, Store, StoreOption, StoreTrue, StoreFalse};
-use rpassword::read_password;
-use rpassword::prompt_password_stdout;
 
 use slog::DrainExt;
 
@@ -410,9 +401,9 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                     }
                 }
                 "ls" | "list" | "dir" => client::list(&mut client, &args, ftp_mode, debug, verbose),
-                "lls" | "llist" | "ldir" => client::list_local(&mut client, &args),
-                "lpwd" => client::print_locoal_dir(&mut client),
-                "lcd" | "lcwd" => client::change_local_dir(&mut client, &args),
+                "lls" | "llist" | "ldir" => client::list_local(&args),
+                "lpwd" => client::print_locoal_dir(),
+                "lcd" | "lcwd" => client::change_local_dir(&args),
                 "mkdir" | "mkd" => client::make_dir(&mut client, &args, debug, verbose),
                 "mdele" | "mdel" => client::mdele(&mut client, &args, debug, verbose),
                 "mlist" | "mls" | "mdir" => {
@@ -437,6 +428,7 @@ fn cmd_loop(mut client: &mut BufReader<TcpStream>, mut arguements: &mut Arguemen
                 "rm" | "rmd" | "rmdir" => client::remove_dir(&mut client, &args, debug, verbose),
                 "rstatus" => client::rstatus(&mut client, &args, debug, verbose),
                 "reset" => continue,
+                "rename" | "rename" => client::rename(&mut client, &args, debug, verbose),
                 "rhelp" => client::r_help(&mut client, debug, verbose),
                 "runique" => {
                     runique = !runique;
