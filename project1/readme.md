@@ -179,8 +179,6 @@ basic usage of the ftp client is as followed: `./ftp_client [host] [port] [optio
 This command above would login to cnt4713.cs.fiu.edu on default port 21 with the username classftp, password secret and 
 turns on both Debug mode and Verbose mode. More options can be found by running `./ftp_client --help`.
 
-At this time, the ftp client only supports passive mode
-
 ### FTP Server
 
 basic usage of the ftp client is as followed: `./ftp_server [options]`. An example of this would be 

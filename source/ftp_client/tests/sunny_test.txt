@@ -1,0 +1,10 @@
+open localhost 2115
+classftp
+micarock520
+debug
+verbose
+put Readme.md Readme.md
+ls
+dele Readme.md
+ls
+quit

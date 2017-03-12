@@ -1,0 +1,41 @@
+open localhost 2115
+user1
+dummy
+mkdir system_test
+runique
+sunique
+debug
+verbose
+ls
+cd system_test
+ls
+put test.txt dititwork.txt
+get diditwork.txt abc.txt
+put abc.txt lesson.txt
+mget diditwork.txt lesson.txt
+cdup
+mlist system_test . list.txt
+y
+type
+binary
+cd system_test
+ascii
+rename diditwork.txt itworked.txt
+binary
+ls
+cdup
+mkdir testdir
+rmd testdir
+cd system_test
+dele itworked.txt
+ls
+put lesson.txt abc.txt
+ls
+mdele lesson.txt abc.txt
+ls
+pwd
+lpwd
+lls
+rmdir system_test
+ls
+quit

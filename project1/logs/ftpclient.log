@@ -1,0 +1,23 @@
+INFO - Global File Logger for FTP CLIENT
+INFO - Success Connecting to server 131.94.130.150
+INFO - SERVER: 220 ProFTPD 1.3.5rc3 Server (Debian) [::ffff:131.94.130.150]
+
+INFO - Running in passive mode
+INFO - ----> USER classftp
+
+INFO - SERVER: 331 Password required for classftp
+
+INFO - ----> PASS micarock520
+
+INFO - SERVER: 230 Anonymous access granted, restrictions apply
+
+INFO - code from server is: 230
+INFO - Success Logging In classftp
+DEBG - Retrieving commands active 
+DEBG - Retrieving commands passive 
+DEBG - Retrieving commands quit 
+INFO - EXITING CLIENT
+INFO - ----> QUIT
+
+INFO - SERVER: 221 Goodbye.
+
