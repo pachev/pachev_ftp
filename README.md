@@ -6,7 +6,6 @@ This is an implementation of both an FTP server and client in Rust. It follows t
 * [Installation of Rust](#installation)
 * [Compiling](#compiling)
 * [Setting Up Configurations](#setting-up-configurations)
-* [A Case For Extra Credit](#a-case-for-extra-credit)
 * [Usage](#usage)
 
 ## Installation
@@ -165,17 +164,6 @@ francisco dummy notallowed
 ```
 The rest of the files are created but the directories must be in the main folder
 
-
-## A Case For Extra Credit
-
-In general, this project was due in Python, yet I decided to do it in a new programming language: Rust. I am the only
-student in class who did not benefit from a starter file as everyone else was provided with a sample client and server
-file written in python. Further, python as a more mature language has better support and libraries. 
-
-Although I did this project in a different language, I still was able to help other students through the forum by 
-providing general strategies for handling argument parsing and configuration file parsing in python. In addition, I 
-online below the extra steps which I believe can earn me more era credit. 
-
 ### FTP Client
 
 1. Client is multithread for sending and receiving files which was not a requirement
@@ -199,6 +187,24 @@ online below the extra steps which I believe can earn me more era credit.
 
 As long as the [configurations](setting-up-configurations) were setup correctly, both the client and server will 
 run with no arguments given. However adding a `--help` or `--info` will print out usage of the particular application.
+
+### FTP Client
+
+basic usage of the ftp client is as followed: `./ftp_client [host] [port] [options]`. An example of this would be 
+
+`./ftp_client cnt4713.cs.fiu.edu -u classftp --pass secret -D -V`
+
+This command above would login to cnt4713.cs.fiu.edu on default port 21 with the username classftp, password secret and 
+turns on both Debug mode and Verbose mode. More options can be found by running `./ftp_client --help`.
+
+### FTP Server
+
+basic usage of the ftp client is as followed: `./ftp_server [options]`. An example of this would be 
+
+`./ftp_server -u path/to/custom/users`
+
+This command above would start the ftp server using a custom path to a group of users. For more options,
+run the command `./ftp_server --help`.
 
 
 [1]: https://www.ietf.org/rfc/rfc959.txt
