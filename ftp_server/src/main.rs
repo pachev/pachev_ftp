@@ -242,8 +242,11 @@ fn pause_server() -> bool {
 }
 
 fn start_server(settings: &mut Settings, users: &HashMap<String, user::User>) {
+    use std::collections::HashSet;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
-    let mut threads = vec![];
+    let mut threads = HashMap::new();
 
     let log_path = Path::new(&settings.log_file);
     let log_file = OpenOptions::new()
@@ -266,6 +269,12 @@ fn start_server(settings: &mut Settings, users: &HashMap<String, user::User>) {
     let listener = TcpListener::bind(server.as_str()).expect("Could not bind to main port");
     let data_port_range = get_data_ports(format!("{}", settings.data_port_range));
 
+    let hash_set: HashSet<i32> = HashSet::new();
+    let hash_set_done: HashSet<i32> = HashSet::new();
+
+    let mut used_ports = Arc::new(Mutex::new(hash_set));
+    let mut used_ports_done = Arc::new(Mutex::new(hash_set_done));
+
     let mut port_count = 0;
 
 
@@ -273,13 +282,25 @@ fn start_server(settings: &mut Settings, users: &HashMap<String, user::User>) {
 
 
     for stream in listener.incoming() {
+        port_count = 0;
+        while used_ports.lock().unwrap().contains(&data_port_range[port_count]) && port_count < 200 {
+            port_count += 1;
+        }
         if port_count >= 200 {
             info!("Reached client threshold");
             continue;
         }
-
+	println!("Handling client number {}", port_count);
         let data_port = data_port_range[port_count];
         let stream = stream.expect("Could not create TCP Stream");
+
+        if (used_ports_done.lock().unwrap().contains(&data_port)) {
+          let t: std::thread::JoinHandle<_> = threads.remove(&data_port).unwrap();
+          let _ = t.join();
+          used_ports_done.lock().unwrap().remove(&data_port);
+          println!("Cleaned up the data from previous run...");
+        }
+        used_ports.lock().unwrap().insert(data_port);
 
 
         debug!("client {} has started and given data port {}",
@@ -288,15 +309,18 @@ fn start_server(settings: &mut Settings, users: &HashMap<String, user::User>) {
 
         let mut map = users.clone();
         let settings = settings.clone();
+        let mut used_ports_client_copy = used_ports.clone();
+	let mut used_ports_done_client_copy = used_ports_done.clone();
 
-        threads.push(spawn(move || {
+        threads.insert(data_port, spawn(move || {
             let mut b_stream = BufReader::new(stream);
             handle_client(&mut b_stream, &data_port, &settings, &mut map);
+            used_ports_client_copy.lock().unwrap().remove(&data_port);
+	    used_ports_done_client_copy.lock().unwrap().insert(data_port);
         }));
-        port_count += 1;
     }
 
-    for t in threads {
+    for (p, t) in threads {
         info!("Stopping all threads");
         let _ = t.join();
     }
