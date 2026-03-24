@@ -1,5 +1,14 @@
 # FTP Server and Client In Rust
 
+## ⚠️ Disclaimer
+
+This project was created as a learning exercise for a college course, and is not secure.
+Do not use in production environments.
+
+Known vulnerabilities may exist (including path traversal issues).
+
+---
+
 This is an implementation of both an FTP server and client in Rust. It follows the [RFC 959][1] as best as possible.
 
 
